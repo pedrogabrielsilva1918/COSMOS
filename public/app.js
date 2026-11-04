@@ -132,10 +132,50 @@ function editUserForm(id) {
   const self = id === state.user.id;
   formModal('Editar pessoa', `<p class="detail-meta">${escapeHTML(person.email)}</p><label>Nome completo<input name="name" required maxlength="120" value="${escapeHTML(person.name)}"></label><label>Setor<select name="sector_id" required>${state.sectors.map(s => `<option value="${s.id}" ${s.id === person.sector_id ? 'selected' : ''}>${escapeHTML(s.name)}</option>`).join('')}</select></label><label>Perfil de acesso<select name="role" ${self ? 'disabled' : ''}><option value="colaborador" ${person.role === 'colaborador' ? 'selected' : ''}>Colaborador</option><option value="admin" ${person.role === 'admin' ? 'selected' : ''}>Administrador</option></select></label><label>Acesso ao COSMOS<select name="active" ${self ? 'disabled' : ''}><option value="true" ${person.active ? 'selected' : ''}>Ativo</option><option value="false" ${!person.active ? 'selected' : ''}>Desativado</option></select></label><p class="hint">${self ? 'Outro administrador deve alterar seu perfil ou desativar seu acesso.' : 'Desativar bloqueia novos logins e encerra as sessões. Alterar o perfil também exige novo login. Solicitações e histórico são preservados. Reativar não recupera sessões anteriores.'}</p>`, `/users/${id}`, data => ({ name: data.name, sector_id: Number(data.sector_id), role: self ? person.role : data.role, active: self ? Boolean(person.active) : data.active === 'true' }), 'Pessoa atualizada.');
 }
+function mountComments(id) {
+  const section = document.createElement('section'); section.className = 'request-comments';
+  section.innerHTML = '<div class="section-heading"><h3>Comentários</h3><button type="button" class="text-button" data-reload>Atualizar ↻</button></div><p class="hint">Visíveis ao solicitante e aos administradores. Você também pode comentar após a decisão.</p><button type="button" class="secondary" data-older hidden>Carregar anteriores</button><div data-comment-list aria-live="polite"></div><p class="error" data-load-error role="alert"></p><form data-comment-form><label>Adicionar comentário<textarea name="content" required maxlength="2000" placeholder="Registre um esclarecimento ou uma atualização."></textarea></label><p class="error" data-send-error role="alert"></p><div class="form-actions"><button class="primary" type="submit">Enviar comentário ↗</button></div></form>';
+  $('#modal-body').append(section);
+  const list = section.querySelector('[data-comment-list]');
+  const older = section.querySelector('[data-older]'); const reload = section.querySelector('[data-reload]');
+  const loadError = section.querySelector('[data-load-error]'); const sendError = section.querySelector('[data-send-error]');
+  let nextBefore = null, loading = false;
+  async function load(before = null) {
+    if (loading) return false;
+    loading = true; older.disabled = true; reload.disabled = true; loadError.textContent = '';
+    try {
+      const data = await api(`/requests/${id}/comments${before === null ? '' : `?before=${before}`}`);
+      if (!section.isConnected) return false;
+      const html = data.comments.map(comment => `<article class="request-comment"><div><strong>${escapeHTML(comment.author)}</strong><time>${date(comment.created_at)}</time></div><p>${escapeHTML(comment.content)}</p></article>`).join('');
+      if (before === null) list.innerHTML = html || '<p class="hint">Ainda não há comentários. Comece a conversa.</p>';
+      else list.insertAdjacentHTML('afterbegin', html);
+      nextBefore = data.nextBefore; older.hidden = nextBefore === null; return true;
+    } catch (error) { if (section.isConnected) loadError.textContent = error.message; return false; }
+    finally { loading = false; older.disabled = false; reload.disabled = false; }
+  }
+  older.onclick = () => load(nextBefore); reload.onclick = () => load();
+  section.querySelector('[data-comment-form]').onsubmit = async event => {
+    event.preventDefault(); const content = new FormData(event.target).get('content').trim();
+    sendError.textContent = ''; if (!content) { sendError.textContent = 'Escreva um comentário antes de enviar.'; return; }
+    const button = event.target.querySelector('button'); button.disabled = true;
+    try {
+      await api(`/requests/${id}/comments`, { content });
+      if (!section.isConnected) return;
+      event.target.reset();
+      // A lista é recarregada separadamente: uma falha de leitura não permite reenviar o mesmo texto por engano.
+      notify('Comentário enviado.');
+      if (!loading) await load();
+      else loadError.textContent = 'Comentário salvo. Clique em Atualizar para ver a conversa mais recente.';
+    } catch (error) { if (section.isConnected) sendError.textContent = error.message; }
+    finally { button.disabled = false; }
+  };
+  load();
+}
 function showRequest(id) {
   const r = state.requests.find(r => r.id === id); if (!r) return;
   const canDecide = state.user.role === 'admin' && r.status === 'pendente' && r.user_id !== state.user.id;
   openModal(`Solicitação COS-${String(id).padStart(5, '0')}`, `${pill(r.status)}<h3 class="detail-title">${escapeHTML(r.title)}</h3><p class="detail-meta">Solicitante: ${escapeHTML(r.author)}<br>Setor: ${escapeHTML(r.sector)} · Prioridade: ${escapeHTML(r.priority)}<br>Enviada em ${date(r.created_at)}</p><div class="detail-description">${escapeHTML(r.description)}</div>${r.decision ? `<div class="decision-note"><strong>Decisão de ${escapeHTML(r.reviewer)} · ${date(r.decided_at)}</strong><p>${escapeHTML(r.decision)}</p></div>` : ''}${r.user_id === state.user.id && state.user.role === 'admin' && r.status === 'pendente' ? '<p class="hint">Outro administrador deve avaliar seu pedido. Você pode cadastrá-lo em Pessoas.</p>' : ''}${canDecide ? '<form id="decision-form"><label>Parecer<textarea name="decision" required maxlength="2000" placeholder="Registre o motivo da decisão."></textarea></label><p class="error" id="decision-error" role="alert"></p><div class="form-actions"><button type="submit" name="status" value="recusada" class="primary danger">Recusar</button><button type="submit" name="status" value="aprovada" class="primary">Aprovar ↗</button></div></form>' : ''}`);
+  mountComments(id);
   if (canDecide) $('#decision-form').onsubmit = async event => {
     event.preventDefault(); const buttons = event.target.querySelectorAll('button'); buttons.forEach(b => b.disabled = true);
     try { await api(`/requests/${id}/decision`, { decision: new FormData(event.target).get('decision'), status: event.submitter.value }); $('#modal').close(); await refresh(); notify('Decisão registrada.'); }

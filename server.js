@@ -52,6 +52,8 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
     CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), expires INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS requests(id INTEGER PRIMARY KEY, org_id INTEGER NOT NULL REFERENCES organizations(id), user_id INTEGER NOT NULL REFERENCES users(id), sector_id INTEGER NOT NULL REFERENCES sectors(id), title TEXT NOT NULL, description TEXT NOT NULL, priority TEXT NOT NULL CHECK(priority IN ('normal','alta','urgente')), status TEXT NOT NULL DEFAULT 'pendente' CHECK(status IN ('pendente','aprovada','recusada')), decision TEXT, decided_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), decided_at TEXT);
     CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, org_id INTEGER NOT NULL REFERENCES organizations(id), actor_id INTEGER NOT NULL REFERENCES users(id), action TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+    CREATE TABLE IF NOT EXISTS request_comments(id INTEGER PRIMARY KEY, request_id INTEGER NOT NULL REFERENCES requests(id), user_id INTEGER NOT NULL REFERENCES users(id), content TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+    CREATE INDEX IF NOT EXISTS comments_request ON request_comments(request_id,id);
     CREATE INDEX IF NOT EXISTS requests_org ON requests(org_id,user_id);
     CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires);`);
   // Migração compatível com os bancos já criados; nenhuma tabela é apagada.
@@ -85,7 +87,8 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     const json = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
     try {
-      const path = new URL(req.url, 'http://localhost').pathname;
+      const url = new URL(req.url, 'http://localhost');
+      const path = url.pathname;
       if (!path.startsWith('/api/')) {
         if (req.method !== 'GET') fail(405, 'Método não permitido.');
         const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'] };
@@ -202,6 +205,27 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         if (!['normal', 'alta', 'urgente'].includes(body.priority)) fail(400, 'Prioridade inválida.');
         const id = transaction(() => { const id = Number(db.prepare('INSERT INTO requests(org_id,user_id,sector_id,title,description,priority) VALUES (?,?,?,?,?,?)').run(user.org_id, user.id, sec, title, description, body.priority).lastInsertRowid); audit(user, `Solicitação #${id} criada: ${title}`); return id; });
         return json(201, { id });
+      }
+      const commentMatch = /^\/api\/requests\/(\d+)\/comments$/.exec(path);
+      if (commentMatch) {
+        const requestId = Number(commentMatch[1]);
+        const request = db.prepare('SELECT id,user_id FROM requests WHERE id=? AND org_id=?').get(requestId, user.org_id);
+        // Não revela a existência de pedidos que o usuário não pode consultar.
+        if (!request || (user.role !== 'admin' && request.user_id !== user.id)) fail(404, 'Solicitação não encontrada.');
+        if (req.method === 'GET') {
+          const rawBefore = url.searchParams.get('before');
+          const before = rawBefore === null ? Number.MAX_SAFE_INTEGER : Number(rawBefore);
+          if (!Number.isSafeInteger(before) || before <= 0) fail(400, 'Cursor de comentários inválido.');
+          const rows = db.prepare('SELECT c.id,c.content,c.created_at,u.name AS author FROM request_comments c JOIN users u ON u.id=c.user_id WHERE c.request_id=? AND c.id<? ORDER BY c.id DESC LIMIT 51').all(requestId, before);
+          const comments = rows.slice(0, 50).reverse();
+          return json(200, { comments, nextBefore: rows.length > 50 ? comments[0].id : null });
+        }
+        const body = await readBody(req); const content = field(body, 'content', 2000);
+        const id = transaction(() => {
+          const result = db.prepare('INSERT INTO request_comments(request_id,user_id,content) VALUES (?,?,?)').run(requestId, user.id, content);
+          audit(user, `Comentário adicionado à solicitação #${requestId}`);
+          return Number(result.lastInsertRowid);
+        }); return json(201, { id });
       }
       const match = /^\/api\/requests\/(\d+)\/decision$/.exec(path);
       if (req.method === 'POST' && match) {
