@@ -38,3 +38,6 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:28px;width:580px;
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 
 @media(max-width:760px){.page-heading{flex-wrap:wrap}.page-heading>div{min-width:0}.page-heading>.primary{white-space:nowrap;flex-shrink:0}}
+
+.deadline-label{display:inline-flex;flex-direction:column;gap:3px;font-size:11px;color:#68737e}.deadline-label small{font-size:9px;font-weight:650}.deadline-late{color:#a43d2d}.deadline-alert{display:flex;align-items:center;gap:13px;width:100%;text-align:left;padding:18px 20px;margin:-9px 0 28px;border:1px solid #f0c9b7;border-radius:14px;background:#fff0e5;color:#9a4b2d}.deadline-alert>span{flex:1}.deadline-alert strong{display:block;font-size:13px}.deadline-alert small{display:block;font-size:11px;line-height:1.7;margin-top:4px;color:#8c6553}.deadline-alert>.icon{width:21px;height:21px}.deadline-alert:hover{background:#fce6d9}
+@media(max-width:760px){.deadline-alert{padding:15px;margin-top:-8px}.deadline-alert strong{font-size:12px}.deadline-alert small{font-size:10px}.request-table td[data-label=Prazo]{grid-column:1 / -1}}

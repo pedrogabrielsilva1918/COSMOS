@@ -4,6 +4,8 @@ const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':
 const date = value => new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 const statusName = { pendente: 'Pendente', aprovada: 'Aprovada', recusada: 'Recusada' };
 const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+const formatDeadline = value => value ? String(value).split('-').reverse().join('/') : 'Sem prazo';
+const deadlineBadge = request => `<span class="deadline-label ${request.is_overdue ? 'deadline-late' : ''}">${escapeHTML(formatDeadline(request.due_date))}${request.is_overdue ? '<small>Prazo vencido</small>' : ''}</span>`;
 let state, currentView = 'dashboard', registering = false, noticeTimer;
 async function api(path, body) {
   const res = await fetch(`/api${path}`, { method: body === undefined ? 'GET' : 'POST', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -15,7 +17,7 @@ async function api(path, body) {
   return data;
 }
 function notify(message) { clearTimeout(noticeTimer); $('#notice').textContent = message; $('#notice').hidden = false; noticeTimer = setTimeout(() => { $('#notice').hidden = true; }, 6000); }
-function showAuth() { currentView = 'dashboard'; $('#request-search').value = ''; $('#status-filter').value = ''; $('#workspace').hidden = true; $('#auth').hidden = false; }
+function showAuth() { currentView = 'dashboard'; $('#request-search').value = ''; $('#status-filter').value = ''; $('#deadline-filter').value = ''; $('#workspace').hidden = true; $('#auth').hidden = false; }
 function authMode(value) {
   registering = value;
   $('#registration-fields').hidden = !value;
@@ -89,16 +91,19 @@ $('#main-action').onclick = () => ({ sectors: sectorForm, people: userForm }[cur
 const pill = status => `<span class="pill ${status}">${statusName[status]}</span>`;
 function table(requests) {
   if (!requests.length) return '<div class="empty"><strong>Nenhuma solicitação por aqui.</strong>Crie uma solicitação ou ajuste os filtros para começar.</div>';
-  return `<table class="data-table request-table"><thead><tr><th>SOLICITAÇÃO</th><th>SETOR</th><th>SITUAÇÃO</th><th>PRIORIDADE</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${requests.map(r => `<tr><td data-label="Solicitação"><span class="request-title">${escapeHTML(r.title)}</span><span class="request-id">COS-${String(r.id).padStart(5, '0')} · ${escapeHTML(r.author)}</span></td><td data-label="Setor">${escapeHTML(r.sector)}</td><td data-label="Situação">${pill(r.status)}</td><td data-label="Prioridade"><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase() + r.priority.slice(1))}</span></td><td data-label="Ações"><button class="row-open" data-request="${r.id}" aria-label="Abrir solicitação ${r.id}">Abrir ↗</button></td></tr>`).join('')}</tbody></table>`;
+  return `<table class="data-table request-table"><thead><tr><th>SOLICITAÇÃO</th><th>SETOR</th><th>SITUAÇÃO</th><th>PRIORIDADE</th><th>PRAZO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${requests.map(r => `<tr><td data-label="Solicitação"><span class="request-title">${escapeHTML(r.title)}</span><span class="request-id">COS-${String(r.id).padStart(5, '0')} · ${escapeHTML(r.author)}</span></td><td data-label="Setor">${escapeHTML(r.sector)}</td><td data-label="Situação">${pill(r.status)}</td><td data-label="Prioridade"><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase() + r.priority.slice(1))}</span></td><td data-label="Prazo">${deadlineBadge(r)}</td><td data-label="Ações"><button class="row-open" data-request="${r.id}" aria-label="Abrir solicitação ${r.id}">Abrir ↗</button></td></tr>`).join('')}</tbody></table>`;
 }
 function renderRequests() {
   const search = $('#request-search').value.trim().toLocaleLowerCase('pt-BR'); const status = $('#status-filter').value;
-  $('#all-requests').innerHTML = table(state.requests.filter(r => (!status || r.status === status) && `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(search)));
+  const overdueOnly = $('#deadline-filter').value === 'overdue';
+  $('#all-requests').innerHTML = table(state.requests.filter(r => (!status || r.status === status) && (!overdueOnly || r.is_overdue) && `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(search)));
 }
 $('#request-search').oninput = renderRequests; $('#status-filter').onchange = renderRequests;
+$('#deadline-filter').onchange = renderRequests;
+$('#overdue-alert').onclick = () => { $('#request-search').value = ''; $('#status-filter').value = 'pendente'; $('#deadline-filter').value = 'overdue'; renderRequests(); setView('requests'); };
 $('#export-requests').onclick = async () => {
   const button = $('#export-requests'); button.disabled = true; button.textContent = 'Preparando…';
-  const params = new URLSearchParams({ q: $('#request-search').value.trim(), status: $('#status-filter').value });
+  const params = new URLSearchParams({ q: $('#request-search').value.trim(), status: $('#status-filter').value, deadline: $('#deadline-filter').value });
   try {
     const response = await fetch(`/api/requests/export.csv?${params}`);
     if (!response.ok) {
@@ -127,6 +132,9 @@ async function refresh() {
   $('#greeting').textContent = `Olá, ${state.user.name.split(' ')[0]}`;
   const pending = state.requests.filter(r => r.status === 'pendente').length; $('#pending-count').textContent = pending;
   const metrics = [['Pendentes', pending, 'Aguardando uma decisão', 'clock'], ['Aprovadas', state.requests.filter(r => r.status === 'aprovada').length, 'Pedidos autorizados', 'check'], ['Total de pedidos', state.requests.length, 'Todas as situações', 'document'], ['Setores ativos', state.sectors.filter(s => s.active).length, 'Áreas da organização', 'sectors']];
+  const overdueCount = state.requests.filter(r => r.is_overdue).length;
+  $('#overdue-alert').hidden = overdueCount === 0;
+  $('#overdue-alert').innerHTML = `${icon('clock')}<span><strong>${overdueCount} ${overdueCount === 1 ? 'solicitação com prazo vencido' : 'solicitações com prazo vencido'}</strong><small>Veja os pedidos pendentes que precisam de atenção.</small></span>${icon('arrow')}`;
   $('#metrics').innerHTML = metrics.map(([label, value, subtitle, symbol]) => `<article class="metric"><span class="metric-symbol">${icon(symbol)}</span><div class="metric-content"><span class="metric-label">${label}</span><strong>${value}</strong><small>${subtitle}</small></div></article>`).join('');
   $('#recent-requests').innerHTML = table(state.requests.slice(0, 5)); renderRequests();
   $('#sector-grid').innerHTML = state.sectors.map(s => `<article class="sector-card"><span class="sector-symbol">${icon('sectors')}</span><h2>${escapeHTML(s.name)}</h2><p>${s.active ? 'Ativo' : 'Desativado'}${admin ? ' · ' + state.users.filter(u => u.sector_id === s.id && u.active).length + ' pessoa(s) ativa(s)' : ''}</p>${admin ? `<button type="button" class="row-open sector-edit" data-sector="${s.id}" aria-label="Editar setor ${escapeHTML(s.name)}">Editar ↗</button>` : ''}</article>`).join('');
@@ -212,10 +220,14 @@ function mountComments(id) {
   };
   load();
 }
+function deadlineForm(request) {
+  formModal(`Prazo · COS-${String(request.id).padStart(5, '0')}`, `<label>Data limite<input name="due_date" type="date" min="1000-01-01" max="9999-12-31" value="${escapeHTML(request.due_date || '')}"></label><p class="hint">Deixe vazio para remover o prazo. O pedido vence após o fim da data escolhida, no horário de Brasília. Datas passadas são aceitas e aparecem como vencidas enquanto o pedido estiver pendente.</p>`, `/requests/${request.id}/deadline`, data => ({ due_date: data.due_date || null }), 'Prazo atualizado.');
+}
 function showRequest(id) {
   const r = state.requests.find(r => r.id === id); if (!r) return;
   const canDecide = state.user.role === 'admin' && r.status === 'pendente' && r.user_id !== state.user.id;
-  openModal(`Solicitação COS-${String(id).padStart(5, '0')}`, `${pill(r.status)}<h3 class="detail-title">${escapeHTML(r.title)}</h3><p class="detail-meta">Solicitante: ${escapeHTML(r.author)}<br>Setor: ${escapeHTML(r.sector)} · Prioridade: ${escapeHTML(r.priority)}<br>Enviada em ${date(r.created_at)}</p><div class="detail-description">${escapeHTML(r.description)}</div>${r.decision ? `<div class="decision-note"><strong>Decisão de ${escapeHTML(r.reviewer)} · ${date(r.decided_at)}</strong><p>${escapeHTML(r.decision)}</p></div>` : ''}${r.user_id === state.user.id && state.user.role === 'admin' && r.status === 'pendente' ? '<p class="hint">Outro administrador deve avaliar seu pedido. Você pode cadastrá-lo em Pessoas.</p>' : ''}${canDecide ? '<form id="decision-form"><label>Parecer<textarea name="decision" required maxlength="2000" placeholder="Registre o motivo da decisão."></textarea></label><p class="error" id="decision-error" role="alert"></p><div class="form-actions"><button type="submit" name="status" value="recusada" class="primary danger">Recusar</button><button type="submit" name="status" value="aprovada" class="primary">Aprovar ↗</button></div></form>' : ''}`);
+  openModal(`Solicitação COS-${String(id).padStart(5, '0')}`, `${pill(r.status)}<h3 class="detail-title">${escapeHTML(r.title)}</h3><p class="detail-meta">Solicitante: ${escapeHTML(r.author)}<br>Setor: ${escapeHTML(r.sector)} · Prioridade: ${escapeHTML(r.priority)}<br>Enviada em ${date(r.created_at)}<br>Prazo: ${deadlineBadge(r)}</p>${state.user.role === 'admin' && r.status === 'pendente' ? '<button type="button" class="secondary" id="edit-deadline">Definir ou alterar prazo</button>' : ''}<div class="detail-description">${escapeHTML(r.description)}</div>${r.decision ? `<div class="decision-note"><strong>Decisão de ${escapeHTML(r.reviewer)} · ${date(r.decided_at)}</strong><p>${escapeHTML(r.decision)}</p></div>` : ''}${r.user_id === state.user.id && state.user.role === 'admin' && r.status === 'pendente' ? '<p class="hint">Outro administrador deve avaliar seu pedido. Você pode cadastrá-lo em Pessoas.</p>' : ''}${canDecide ? '<form id="decision-form"><label>Parecer<textarea name="decision" required maxlength="2000" placeholder="Registre o motivo da decisão."></textarea></label><p class="error" id="decision-error" role="alert"></p><div class="form-actions"><button type="submit" name="status" value="recusada" class="primary danger">Recusar</button><button type="submit" name="status" value="aprovada" class="primary">Aprovar ↗</button></div></form>' : ''}`);
+  if ($('#edit-deadline')) $('#edit-deadline').onclick = () => deadlineForm(r);
   mountComments(id);
   if (canDecide) $('#decision-form').onsubmit = async event => {
     event.preventDefault(); const buttons = event.target.querySelectorAll('button'); buttons.forEach(b => b.disabled = true);

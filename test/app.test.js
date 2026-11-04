@@ -170,7 +170,7 @@ test('migração adiciona acesso ativo a banco antigo sem perder cadastros nem s
   assert.equal(registered.status, 201); const cookie = registered.headers.get('set-cookie').split(';')[0]; await registered.json();
   await new Promise(resolve => app.close(resolve));
   // Simula exatamente a tabela de usuários da versão anterior.
-  const legacy = new DatabaseSync(databasePath); legacy.exec('ALTER TABLE users DROP COLUMN active; ALTER TABLE sectors DROP COLUMN active'); legacy.close();
+  const legacy = new DatabaseSync(databasePath); legacy.exec('ALTER TABLE users DROP COLUMN active; ALTER TABLE sectors DROP COLUMN active; ALTER TABLE requests DROP COLUMN due_date'); legacy.close();
   app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   let response = await fetch(`http://127.0.0.1:${app.address().port}/api/workspace`, { headers: { cookie } });
   assert.equal(response.status, 200); const data = await response.json();
@@ -251,7 +251,7 @@ test('CSV respeita filtros e acessos, preserva caracteres e neutraliza fórmulas
     const text = new TextDecoder().decode(bytes);
     // Todos os campos do contrato CSV são entre aspas; inclui quebras dentro de campos.
     const cells = [...text.matchAll(/"((?:[^"]|"")*)"(?:;|\r\n|$)/g)].map(match => match[1].replace(/""/g, '"'));
-    const rows = []; for (let i = 0; i < cells.length; i += 11) rows.push(cells.slice(i, i + 11));
+    const rows = []; for (let i = 0; i < cells.length; i += 12) rows.push(cells.slice(i, i + 12));
     return { response, bytes, text, rows };
   }
   const password = 'Senha-de-teste-2026';
@@ -365,4 +365,83 @@ test('inicialização respeita host e porta explícitos usados por prévias', { 
   });
   assert.ok(port > 0);
   const page = await fetch(`http://127.0.0.1:${port}/`); assert.equal(page.status, 200); assert.ok((await page.text()).includes('COSMOS'));
+});
+
+test('prazo usa a virada do dia em Brasília e somente pedidos pendentes vencem', async () => {
+  const { brazilDay, isRequestOverdue } = await import('../server.js');
+  const beforeMidnight = brazilDay(new Date('2026-11-05T02:59:59.000Z'));
+  const afterMidnight = brazilDay(new Date('2026-11-05T03:00:00.000Z'));
+  assert.equal(beforeMidnight, '2026-11-04'); assert.equal(afterMidnight, '2026-11-05');
+  const request = { status: 'pendente', due_date: '2026-11-04' };
+  assert.equal(isRequestOverdue(request, beforeMidnight), false);
+  assert.equal(isRequestOverdue(request, afterMidnight), true);
+  assert.equal(isRequestOverdue({ ...request, status: 'aprovada' }, afterMidnight), false);
+  assert.equal(isRequestOverdue({ ...request, status: 'recusada' }, afterMidnight), false);
+  assert.equal(isRequestOverdue({ status: 'pendente', due_date: null }, afterMidnight), false);
+});
+
+test('prazos: migração, permissões, datas válidas, filtro CSV e persistência', async t => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { brazilDay } = await import('../server.js');
+  const dir = mkdtempSync(join(tmpdir(), 'cosmos-deadlines-')); const databasePath = join(dir, 'deadlines.sqlite');
+  let app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  let base = `http://127.0.0.1:${app.address().port}`;
+  t.after(async () => { if (app.listening) await new Promise(resolve => app.close(resolve)); rmSync(dir, { recursive: true, force: true }); });
+  async function call(path, body, cookie = '') {
+    const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  }
+  const password = 'Senha-de-teste-2026';
+  const a = await call('/api/register', { name: 'Admin', organization: 'Empresa', type: 'privada', email: 'a@empresa.com', password });
+  const b = await call('/api/register', { name: 'Outro', organization: 'Outra', type: 'publica', email: 'b@empresa.com', password });
+  const sector = (await call('/api/workspace', undefined, a.cookie)).data.sectors[0].id;
+  await call('/api/users', { name: 'Carlos', email: 'c@empresa.com', password, role: 'colaborador', sector_id: sector }, a.cookie);
+  const c = await call('/api/login', { email: 'c@empresa.com', password });
+  const ids = [];
+  for (const title of ['Pedido vencido', 'Pedido para hoje', 'Pedido sem prazo']) {
+    const response = await call('/api/requests', { title, description: 'Teste de prazos', priority: 'normal', sector_id: sector }, c.cookie);
+    assert.equal(response.status, 201); ids.push(response.data.id);
+  }
+  // Banco de uma versão anterior, já com pedidos e contas.
+  await new Promise(resolve => app.close(resolve));
+  const old = new DatabaseSync(databasePath); old.exec('ALTER TABLE requests DROP COLUMN due_date'); old.close();
+  app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening'); base = `http://127.0.0.1:${app.address().port}`;
+  let workspace = (await call('/api/workspace', undefined, c.cookie)).data;
+  assert.equal(workspace.requests.length, 3); assert.ok(workspace.requests.every(r => r.due_date === null && r.is_overdue === false));
+  const path = `/api/requests/${ids[0]}/deadline`;
+  assert.equal((await call(path, { due_date: '2028-02-29' })).status, 401);
+  assert.equal((await call(path, { due_date: '2028-02-29' }, c.cookie)).status, 403);
+  assert.equal((await call(path, { due_date: '2028-02-29' }, b.cookie)).status, 404);
+  assert.equal((await call('/api/requests/999999/deadline', { due_date: '2028-02-29' }, a.cookie)).status, 404);
+  for (const due_date of [undefined, '', '2026-02-29', '2026-02-30', '2026-13-01', '2026-00-01', '2026-1-01', '2026-11-04T00:00:00Z', '0000-01-01', 55]) {
+    assert.equal((await call(path, { due_date }, a.cookie)).status, 400);
+  }
+  assert.equal((await call(path, { due_date: '2028-02-29' }, a.cookie)).status, 200);
+  assert.equal((await call('/api/workspace', undefined, c.cookie)).data.requests.find(r => r.id === ids[0]).due_date, '2028-02-29');
+  assert.equal((await call(path, { due_date: null }, a.cookie)).status, 200);
+  const today = brazilDay();
+  const yesterday = new Date(Date.parse(today + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);
+  assert.equal((await call(path, { due_date: yesterday }, a.cookie)).status, 200);
+  assert.equal((await call(`/api/requests/${ids[1]}/deadline`, { due_date: today }, a.cookie)).status, 200);
+  workspace = (await call('/api/workspace', undefined, c.cookie)).data;
+  assert.equal(workspace.requests.find(r => r.id === ids[0]).is_overdue, true);
+  assert.equal(workspace.requests.find(r => r.id === ids[1]).is_overdue, false);
+  assert.equal(workspace.requests.find(r => r.id === ids[2]).is_overdue, false);
+  const csvResponse = await fetch(base + '/api/requests/export.csv?deadline=overdue', { headers: { cookie: c.cookie } });
+  assert.equal(csvResponse.status, 200); const csv = await csvResponse.text();
+  assert.ok(csv.includes('Prazo (AAAA-MM-DD)')); assert.ok(csv.includes(yesterday)); assert.ok(csv.includes('Pedido vencido'));
+  assert.equal(csv.includes('Pedido para hoje'), false); assert.equal(csv.includes('Pedido sem prazo'), false);
+  const otherCSV = await fetch(base + '/api/requests/export.csv?deadline=overdue', { headers: { cookie: b.cookie } });
+  assert.equal((await otherCSV.text()).includes('Pedido vencido'), false);
+  assert.equal((await call('/api/requests/export.csv?deadline=invalido', undefined, a.cookie)).status, 400);
+  assert.equal((await call(`/api/requests/${ids[0]}/decision`, { status: 'aprovada', decision: 'Autorizado' }, a.cookie)).status, 200);
+  assert.equal((await call(path, { due_date: null }, a.cookie)).status, 409);
+  workspace = (await call('/api/workspace', undefined, c.cookie)).data;
+  assert.equal(workspace.requests.find(r => r.id === ids[0]).due_date, yesterday);
+  assert.equal(workspace.requests.find(r => r.id === ids[0]).is_overdue, false);
+  await new Promise(resolve => app.close(resolve));
+  app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening'); base = `http://127.0.0.1:${app.address().port}`;
+  workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  assert.equal(workspace.requests.find(r => r.id === ids[1]).due_date, today);
+  assert.ok(workspace.history.some(h => h.action.includes(`Prazo da solicitação #${ids[0]}`) && h.action.includes(yesterday)));
 });
