@@ -6,3 +6,4 @@
 .filters #export-requests{white-space:nowrap}.export-hint{margin:-8px 0 18px}
 
 .sector-edit{margin-top:18px;padding-left:0}
+@media(max-width:760px){.sidebar nav{flex-wrap:wrap;overflow:visible}}
