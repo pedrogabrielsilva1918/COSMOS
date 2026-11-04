@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Visual Conexão Coral
+
+A interface usa fundo claro, coral e verde-água, com ícones vetoriais locais e tipografia mais legível. A página inicial tem atalhos para solicitações, setores e o guia **Como funciona**, com orientações conforme o perfil de acesso. O nome da saudação e os indicadores continuam usando os dados da conta conectada.
+
+No celular, os pedidos aparecem em cartões para consultar os detalhes sem rolagem lateral. As tabelas administrativas continuam disponíveis com rolagem quando necessário. A interface respeita a preferência do dispositivo por movimento reduzido. Nenhuma alteração no banco é necessária para este redesign.
+
 ## O que está disponível
 
 - Cadastro de organização pública ou privada e do primeiro administrador.

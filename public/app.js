@@ -3,6 +3,7 @@ const $ = selector => document.querySelector(selector);
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const date = value => new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 const statusName = { pendente: 'Pendente', aprovada: 'Aprovada', recusada: 'Recusada' };
+const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
 let state, currentView = 'dashboard', registering = false, noticeTimer;
 async function api(path, body) {
   const res = await fetch(`/api${path}`, { method: body === undefined ? 'GET' : 'POST', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -59,7 +60,7 @@ const media = window.matchMedia('(max-width:760px)');
 function responsiveLogout() { if (media.matches) $('.sidebar').append(mobileLogout); else mobileLogout.remove(); }
 media.addEventListener('change', responsiveLogout); responsiveLogout();
 const viewInfo = {
-  dashboard: ['Visão geral', 'TUDO EM SEU LUGAR', 'Acompanhe sua organização e faça o trabalho avançar.', '+ Nova solicitação'],
+  dashboard: ['Início', 'TUDO EM SEU LUGAR', 'Acompanhe sua organização e faça o trabalho avançar.', '+ Nova solicitação'],
   requests: ['Solicitações', 'DO PEDIDO À DECISÃO', 'Crie, acompanhe e consulte as solicitações.', '+ Nova solicitação'],
   sectors: ['Setores', 'UMA ESTRUTURA CONECTADA', 'Organize as áreas que fazem sua organização acontecer.', '+ Novo setor'],
   people: ['Pessoas', 'QUEM FAZ ACONTECER', 'Cadastre sua equipe e defina os perfis de acesso.', '+ Nova pessoa'],
@@ -67,21 +68,28 @@ const viewInfo = {
 };
 function setView(view) {
   if (!state || !viewInfo[view] || (['people', 'history'].includes(view) && state.user.role !== 'admin')) return;
+  const changedView = currentView !== view;
   currentView = view;
+  $('#workspace').dataset.currentView = view;
   for (const key of Object.keys(viewInfo)) $(`#${key}-view`).hidden = key !== view;
-  for (const button of document.querySelectorAll('[data-view]')) button.classList.toggle('active', button.dataset.view === view);
+  for (const button of document.querySelectorAll('[data-view]')) { button.classList.toggle('active', button.dataset.view === view); if (button.dataset.view === view) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current'); }
   const [title, kicker, description, action] = viewInfo[view];
-  $('#page-title').textContent = title + '.'; $('#breadcrumb').textContent = title; $('#page-kicker').textContent = kicker; $('#page-description').textContent = description;
+  $('#page-title').textContent = title; $('#breadcrumb').textContent = title; $('#page-kicker').textContent = kicker; $('#page-description').textContent = description;
   $('#main-action').textContent = action || ''; $('#main-action').hidden = !action || (view === 'sectors' && state.user.role !== 'admin');
+  if (changedView) window.scrollTo({ top: 0, behavior: 'auto' });
 }
 for (const button of document.querySelectorAll('[data-view]')) button.onclick = () => setView(button.dataset.view);
 $('#see-all').onclick = () => setView('requests');
 $('#sidebar-new').onclick = () => requestForm();
+$('#hero-new').onclick = () => requestForm();
+$('#shortcut-requests').onclick = () => setView('requests');
+$('#shortcut-sectors').onclick = () => setView('sectors');
+$('#shortcut-help').onclick = () => showGuide();
 $('#main-action').onclick = () => ({ sectors: sectorForm, people: userForm }[currentView] || requestForm)();
 const pill = status => `<span class="pill ${status}">${statusName[status]}</span>`;
 function table(requests) {
   if (!requests.length) return '<div class="empty"><strong>Nenhuma solicitação por aqui.</strong>Crie uma solicitação ou ajuste os filtros para começar.</div>';
-  return `<table class="data-table"><thead><tr><th>SOLICITAÇÃO</th><th>SETOR</th><th>SITUAÇÃO</th><th>PRIORIDADE</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${requests.map(r => `<tr><td><span class="request-title">${escapeHTML(r.title)}</span><span class="request-id">COS-${String(r.id).padStart(5, '0')} · ${escapeHTML(r.author)}</span></td><td>${escapeHTML(r.sector)}</td><td>${pill(r.status)}</td><td><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase() + r.priority.slice(1))}</span></td><td><button class="row-open" data-request="${r.id}" aria-label="Abrir solicitação ${r.id}">Abrir ↗</button></td></tr>`).join('')}</tbody></table>`;
+  return `<table class="data-table request-table"><thead><tr><th>SOLICITAÇÃO</th><th>SETOR</th><th>SITUAÇÃO</th><th>PRIORIDADE</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${requests.map(r => `<tr><td data-label="Solicitação"><span class="request-title">${escapeHTML(r.title)}</span><span class="request-id">COS-${String(r.id).padStart(5, '0')} · ${escapeHTML(r.author)}</span></td><td data-label="Setor">${escapeHTML(r.sector)}</td><td data-label="Situação">${pill(r.status)}</td><td data-label="Prioridade"><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase() + r.priority.slice(1))}</span></td><td data-label="Ações"><button class="row-open" data-request="${r.id}" aria-label="Abrir solicitação ${r.id}">Abrir ↗</button></td></tr>`).join('')}</tbody></table>`;
 }
 function renderRequests() {
   const search = $('#request-search').value.trim().toLocaleLowerCase('pt-BR'); const status = $('#status-filter').value;
@@ -116,19 +124,25 @@ async function refresh() {
   $('#account-name').textContent = state.user.name; $('#account-role').textContent = admin ? 'Administrador' : 'Colaborador';
   $('#avatar').textContent = state.user.name.split(' ').filter(Boolean).slice(0, 2).map(x => x[0]).join('').toUpperCase();
   $('#today').textContent = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
-  $('#greeting').textContent = `Olá, ${state.user.name.split(' ')[0]}. Vamos avançar?`;
+  $('#greeting').textContent = `Olá, ${state.user.name.split(' ')[0]}`;
   const pending = state.requests.filter(r => r.status === 'pendente').length; $('#pending-count').textContent = pending;
-  const metrics = [['Total de solicitações', state.requests.length, 'Todas as situações', '▤'], ['Aguardando decisão', pending, 'Solicitações pendentes', '◷'], ['Aprovadas', state.requests.filter(r => r.status === 'aprovada').length, 'Pedidos autorizados', '↗'], ['Setores ativos', state.sectors.filter(s => s.active).length, 'Áreas da organização', '▦']];
-  $('#metrics').innerHTML = metrics.map(([label, value, subtitle, symbol]) => `<article class="metric"><div class="metric-top">${label}<span class="metric-symbol">${symbol}</span></div><strong>${String(value).padStart(2, '0')}</strong><small>${subtitle}</small></article>`).join('');
+  const metrics = [['Pendentes', pending, 'Aguardando uma decisão', 'clock'], ['Aprovadas', state.requests.filter(r => r.status === 'aprovada').length, 'Pedidos autorizados', 'check'], ['Total de pedidos', state.requests.length, 'Todas as situações', 'document'], ['Setores ativos', state.sectors.filter(s => s.active).length, 'Áreas da organização', 'sectors']];
+  $('#metrics').innerHTML = metrics.map(([label, value, subtitle, symbol]) => `<article class="metric"><span class="metric-symbol">${icon(symbol)}</span><div class="metric-content"><span class="metric-label">${label}</span><strong>${value}</strong><small>${subtitle}</small></div></article>`).join('');
   $('#recent-requests').innerHTML = table(state.requests.slice(0, 5)); renderRequests();
-  $('#sector-grid').innerHTML = state.sectors.map(s => `<article class="sector-card"><span>▦</span><h2>${escapeHTML(s.name)}</h2><p>${s.active ? 'Ativo' : 'Desativado'}${admin ? ' · ' + state.users.filter(u => u.sector_id === s.id && u.active).length + ' pessoa(s) ativa(s)' : ''}</p>${admin ? `<button type="button" class="row-open sector-edit" data-sector="${s.id}" aria-label="Editar setor ${escapeHTML(s.name)}">Editar ↗</button>` : ''}</article>`).join('');
+  $('#sector-grid').innerHTML = state.sectors.map(s => `<article class="sector-card"><span class="sector-symbol">${icon('sectors')}</span><h2>${escapeHTML(s.name)}</h2><p>${s.active ? 'Ativo' : 'Desativado'}${admin ? ' · ' + state.users.filter(u => u.sector_id === s.id && u.active).length + ' pessoa(s) ativa(s)' : ''}</p>${admin ? `<button type="button" class="row-open sector-edit" data-sector="${s.id}" aria-label="Editar setor ${escapeHTML(s.name)}">Editar ↗</button>` : ''}</article>`).join('');
   $('#people-table').innerHTML = `<table class="data-table"><thead><tr><th>NOME</th><th>E-MAIL</th><th>SETOR</th><th>PERFIL</th><th>ACESSO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${state.users.map(u => `<tr><td>${escapeHTML(u.name)}</td><td>${escapeHTML(u.email)}</td><td>${escapeHTML(u.sector)}</td><td>${u.role === 'admin' ? 'Administrador' : 'Colaborador'}</td><td>${u.active ? 'Ativo' : 'Desativado'}</td><td><button class="row-open" data-person="${u.id}" aria-label="Editar ${escapeHTML(u.name)}">Editar ↗</button></td></tr>`).join('')}</tbody></table>`;
-  $('#history-list').innerHTML = state.history.map(h => `<article class="history-item"><span class="history-dot">◷</span><div>${escapeHTML(h.action)}<small>${escapeHTML(h.actor)} · ${date(h.created_at)}</small></div></article>`).join('') || '<div class="empty">Nenhuma movimentação registrada.</div>';
+  $('#history-list').innerHTML = state.history.map(h => `<article class="history-item"><span class="history-dot">${icon('clock')}</span><div>${escapeHTML(h.action)}<small>${escapeHTML(h.actor)} · ${date(h.created_at)}</small></div></article>`).join('') || '<div class="empty">Nenhuma movimentação registrada.</div>';
   setView(currentView);
 }
 $('#workspace').addEventListener('click', event => { const button = event.target.closest('[data-request]'); if (button) showRequest(Number(button.dataset.request)); const person = event.target.closest('[data-person]'); if (person) editUserForm(Number(person.dataset.person)); const sector = event.target.closest('[data-sector]'); if (sector) editSectorForm(Number(sector.dataset.sector)); });
 $('#close-modal').onclick = () => $('#modal').close();
 function openModal(title, html) { $('#modal-title').textContent = title; $('#modal-body').innerHTML = html; if (!$('#modal').open) $('#modal').showModal(); }
+function showGuide() {
+  const admin = state.user.role === 'admin';
+  openModal('Seu caminho no COSMOS', `<p class="guide-intro">Um pedido de cada vez. Veja como é simples acompanhar sua rotina por aqui.</p><ol class="guide-steps"><li><span>1</span><div><h3>Conte o que você precisa</h3><p>Crie uma solicitação com título, setor, prioridade e uma justificativa clara.</p></div></li><li><span>2</span><div><h3>Acompanhe a decisão</h3><p>Abra o pedido em Solicitações para ver a situação e o parecer. ${admin ? 'Como administrador, você também pode avaliar os pedidos de outras pessoas.' : 'Os administradores da organização analisam os pedidos.'}</p></div></li><li><span>3</span><div><h3>Mantenha a conversa por perto</h3><p>Use os comentários do pedido para esclarecer dúvidas, inclusive depois da decisão.</p></div></li></ol>${admin ? '<p class="hint">Em Pessoas e Setores você organiza a equipe. Pedidos próprios precisam ser avaliados por outro administrador.</p>' : '<p class="hint">Você acompanha seus próprios pedidos. Para atualizar seu cadastro, procure um administrador.</p>'}<div class="form-actions"><button type="button" class="secondary" id="guide-browse">Ver solicitações</button><button type="button" class="primary" id="guide-new">Criar meu pedido ${icon('arrow')}</button></div>`);
+  $('#guide-browse').onclick = () => { $('#modal').close(); setView('requests'); };
+  $('#guide-new').onclick = () => { $('#modal').close(); requestForm(); };
+}
 function sectorOptions() { return state.sectors.filter(s => s.active).map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`).join(''); }
 function formModal(title, fields, endpoint, convert = data => data, success = 'Cadastro realizado.') {
   openModal(title, `<form id="modal-form">${fields}<p class="error" id="modal-error" role="alert"></p><div class="form-actions"><button type="button" class="secondary" id="cancel-form">Cancelar</button><button class="primary" type="submit">Salvar ↗</button></div></form>`);
