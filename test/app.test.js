@@ -109,3 +109,73 @@ test('troca de senha exige senha atual e encerra somente as sessões da própria
   assert.ok(history.some(h => h.action.includes('Senha da própria conta alterada')));
   assert.equal(JSON.stringify(history).includes(newPassword), false);
 });
+
+test('gestão de pessoas isola organizações, revoga acessos e preserva administrador e histórico', async t => {
+  const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  async function call(path, body, cookie = '') {
+    const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  }
+  const password = 'Senha-de-teste-2026';
+  const a = await call('/api/register', { name: 'Admin', organization: 'Empresa', type: 'privada', email: 'a@empresa.com', password });
+  const b = await call('/api/register', { name: 'Outra', organization: 'Órgão', type: 'publica', email: 'b@empresa.com', password });
+  const workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  const sector = workspace.sectors[0].id;
+  const otherSector = (await call('/api/workspace', undefined, b.cookie)).data.sectors[0].id;
+  await call('/api/users', { name: 'Carlos', email: 'c@empresa.com', password, role: 'colaborador', sector_id: sector }, a.cookie);
+  const c = await call('/api/login', { email: 'c@empresa.com', password });
+  const c2 = await call('/api/login', { email: 'c@empresa.com', password });
+  const edit = { name: 'Carlos Atualizado', sector_id: sector, role: 'colaborador', active: true };
+  assert.equal((await call(`/api/users/${c.data.id}`, edit)).status, 401);
+  assert.equal((await call(`/api/users/${c.data.id}`, edit, c.cookie)).status, 403);
+  assert.equal((await call(`/api/users/${c.data.id}`, { ...edit, sector_id: otherSector }, b.cookie)).status, 404);
+  assert.equal((await call(`/api/users/${c.data.id}`, { ...edit, sector_id: otherSector }, a.cookie)).status, 400);
+  assert.equal((await call(`/api/users/${c.data.id}`, { ...edit, active: 'false' }, a.cookie)).status, 400);
+  assert.equal((await call(`/api/users/${c.data.id}`, { ...edit, role: 'superadmin' }, a.cookie)).status, 400);
+  assert.equal((await call(`/api/users/${a.data.id}`, { ...edit, role: 'admin', active: false }, a.cookie)).status, 409);
+  assert.equal((await call(`/api/users/${a.data.id}`, edit, a.cookie)).status, 409);
+  assert.equal((await call(`/api/users/${c.data.id}`, edit, a.cookie)).status, 200);
+  assert.equal((await call('/api/workspace', undefined, c.cookie)).data.user.name, edit.name);
+  const request = await call('/api/requests', { title: 'Pedido preservado', description: 'Descrição', priority: 'normal', sector_id: sector }, c.cookie);
+  assert.equal(request.status, 201);
+  assert.equal((await call(`/api/users/${c.data.id}`, { ...edit, active: false }, a.cookie)).status, 200);
+  assert.equal((await call('/api/workspace', undefined, c.cookie)).status, 401);
+  assert.equal((await call('/api/workspace', undefined, c2.cookie)).status, 401);
+  assert.equal((await call('/api/login', { email: 'c@empresa.com', password })).status, 401);
+  let updated = (await call('/api/workspace', undefined, a.cookie)).data;
+  assert.equal(updated.requests.find(r => r.id === request.data.id).title, 'Pedido preservado');
+  assert.equal(updated.users.find(u => u.id === c.data.id).active, 0);
+  assert.ok(updated.history.some(h => h.action.includes('acesso desativado')));
+  assert.equal((await call(`/api/users/${c.data.id}`, edit, a.cookie)).status, 200);
+  assert.equal((await call('/api/workspace', undefined, c.cookie)).status, 401);
+  const reactivated = await call('/api/login', { email: 'c@empresa.com', password }); assert.equal(reactivated.status, 200);
+  assert.equal((await call(`/api/users/${c.data.id}`, { ...edit, role: 'admin' }, a.cookie)).status, 200);
+  assert.equal((await call('/api/workspace', undefined, reactivated.cookie)).status, 401);
+  const promoted = await call('/api/login', { email: 'c@empresa.com', password });
+  assert.equal((await call('/api/workspace', undefined, promoted.cookie)).data.user.role, 'admin');
+  assert.equal((await call(`/api/users/${a.data.id}`, { ...edit, role: 'admin', active: false }, a.cookie)).status, 409);
+  assert.equal((await call(`/api/users/${a.data.id}`, { name: 'Admin', sector_id: sector, role: 'colaborador', active: true }, promoted.cookie)).status, 200);
+  assert.equal((await call('/api/workspace', undefined, a.cookie)).status, 401);
+  assert.equal((await call('/api/workspace', undefined, b.cookie)).data.organization.name, 'Órgão');
+});
+
+test('migração adiciona acesso ativo a banco antigo sem perder cadastros nem sessões', async t => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const dir = mkdtempSync(join(tmpdir(), 'cosmos-migration-')); const databasePath = join(dir, 'old.sqlite');
+  let app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  t.after(async () => { if (app.listening) await new Promise(resolve => app.close(resolve)); rmSync(dir, { recursive: true, force: true }); });
+  const registered = await fetch(`http://127.0.0.1:${app.address().port}/api/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Existente', organization: 'Legado', type: 'privada', email: 'legado@empresa.com', password: 'Senha-antiga-2026' }) });
+  assert.equal(registered.status, 201); const cookie = registered.headers.get('set-cookie').split(';')[0]; await registered.json();
+  await new Promise(resolve => app.close(resolve));
+  // Simula exatamente a tabela de usuários da versão anterior.
+  const legacy = new DatabaseSync(databasePath); legacy.exec('ALTER TABLE users DROP COLUMN active'); legacy.close();
+  app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  let response = await fetch(`http://127.0.0.1:${app.address().port}/api/workspace`, { headers: { cookie } });
+  assert.equal(response.status, 200); const data = await response.json();
+  assert.equal(data.organization.name, 'Legado'); assert.equal(data.user.active, 1); assert.equal(data.user.name, 'Existente');
+  // Uma segunda inicialização não repete a migração.
+  await new Promise(resolve => app.close(resolve)); app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  response = await fetch(`http://127.0.0.1:${app.address().port}/api/workspace`, { headers: { cookie } }); assert.equal(response.status, 200); await response.json();
+});

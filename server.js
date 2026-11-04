@@ -10,7 +10,7 @@ const scrypt = promisify(scryptCallback);
 const root = dirname(fileURLToPath(import.meta.url));
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const hash = value => createHash('sha256').update(value).digest('hex');
-const safeUser = user => ({ id: user.id, name: user.name, email: user.email, role: user.role, sector_id: user.sector_id });
+const safeUser = user => ({ id: user.id, name: user.name, email: user.email, role: user.role, sector_id: user.sector_id, active: user.active });
 async function passwordHash(password) {
   const salt = randomBytes(16).toString('hex');
   return `${salt}:${Buffer.from(await scrypt(password, salt, 64)).toString('hex')}`;
@@ -54,6 +54,10 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
     CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, org_id INTEGER NOT NULL REFERENCES organizations(id), actor_id INTEGER NOT NULL REFERENCES users(id), action TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
     CREATE INDEX IF NOT EXISTS requests_org ON requests(org_id,user_id);
     CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires);`);
+  // Migração compatível com os bancos já criados; nenhuma tabela é apagada.
+  if (!db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'active')) {
+    db.exec('ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))');
+  }
   const rate = new Map();
   const janitor = setInterval(() => {
     const now = Date.now();
@@ -62,12 +66,14 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
   }, 60000); janitor.unref();
   function transaction(fn) { db.exec('BEGIN IMMEDIATE'); try { const result = fn(); db.exec('COMMIT'); return result; } catch (e) { db.exec('ROLLBACK'); throw e; } }
   function audit(user, action) { db.prepare('INSERT INTO audit(org_id,actor_id,action) VALUES (?,?,?)').run(user.org_id, user.id, action); }
-  function admin(user) { if (user.role !== 'admin') fail(403, 'Acesso restrito ao administrador.'); }
+  function admin(user) { const current = db.prepare('SELECT role,active FROM users WHERE id=?').get(user.id); if (!current?.active || current.role !== 'admin') fail(403, 'Acesso restrito ao administrador.'); }
   function sector(id, org) {
     if (!Number.isSafeInteger(id) || !db.prepare('SELECT id FROM sectors WHERE id=? AND org_id=?').get(id, org)) fail(400, 'Selecione um setor da organização.');
     return id;
   }
   function issueSession(res, user) {
+    const current = db.prepare('SELECT password,active FROM users WHERE id=?').get(user.id);
+    if (!current?.active || current.password !== user.password) fail(401, 'Entre novamente com suas credenciais atuais.');
     const token = randomBytes(32).toString('hex');
     db.prepare('INSERT INTO sessions VALUES (?,?,?)').run(hash(token), user.id, Date.now() + 8 * 3600000);
     res.setHeader('Set-Cookie', `cosmos=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${secure ? '; Secure' : ''}`);
@@ -119,11 +125,11 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         // Mesmo custo de derivação para contas inexistentes.
         const dummy = '0'.repeat(32) + ':' + '0'.repeat(128);
         const matches = await passwordMatches(password, user?.password || dummy);
-        if (!user || !matches) fail(401, 'E-mail ou senha incorretos.');
+        if (!user || !user.active || !matches) fail(401, 'E-mail ou senha incorretos.');
         issueSession(res, user); return json(200, safeUser(user));
       }
       const token = /(?:^|;\s*)cosmos=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie || '')?.[1];
-      const user = token && db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?').get(hash(token), Date.now());
+      const user = token && db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>? AND u.active=1').get(hash(token), Date.now());
       if (!user) fail(401, 'Entre na sua conta para continuar.');
       if (req.method === 'POST' && path === '/api/logout') {
         db.prepare('DELETE FROM sessions WHERE token=?').run(hash(token));
@@ -150,7 +156,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       if (req.method === 'GET' && path === '/api/workspace') {
         const organization = db.prepare('SELECT * FROM organizations WHERE id=?').get(user.org_id);
         const sectors = db.prepare('SELECT id,name FROM sectors WHERE org_id=? ORDER BY name').all(user.org_id);
-        const users = user.role === 'admin' ? db.prepare('SELECT u.id,u.name,u.email,u.role,s.name AS sector FROM users u LEFT JOIN sectors s ON s.id=u.sector_id WHERE u.org_id=? ORDER BY u.name').all(user.org_id) : [];
+        const users = user.role === 'admin' ? db.prepare('SELECT u.id,u.name,u.email,u.role,u.active,u.sector_id,s.name AS sector FROM users u LEFT JOIN sectors s ON s.id=u.sector_id WHERE u.org_id=? ORDER BY u.name').all(user.org_id) : [];
         const requests = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by WHERE r.org_id=? ${user.role === 'admin' ? '' : 'AND r.user_id=?'} ORDER BY r.id DESC`).all(...(user.role === 'admin' ? [user.org_id] : [user.org_id, user.id]));
         const history = user.role === 'admin' ? db.prepare('SELECT a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id WHERE a.org_id=? ORDER BY a.id DESC LIMIT 50').all(user.org_id) : [];
         return json(200, { user: safeUser(user), organization, sectors, users, requests, history });
@@ -164,8 +170,32 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         admin(user); const body = await readBody(req); const { email, password } = credentials(body); const name = field(body, 'name', 120);
         if (!['admin', 'colaborador'].includes(body.role)) fail(400, 'Perfil inválido.');
         const sec = sector(body.sector_id, user.org_id); const digest = await passwordHash(password);
-        transaction(() => { if (db.prepare('SELECT id FROM users WHERE email=?').get(email)) fail(409, 'Este e-mail já está cadastrado.'); db.prepare('INSERT INTO users(org_id,sector_id,name,email,password,role) VALUES (?,?,?,?,?,?)').run(user.org_id, sec, name, email, digest, body.role); audit(user, `Usuário cadastrado: ${name}`); });
+        transaction(() => { admin(user); if (db.prepare('SELECT id FROM users WHERE email=?').get(email)) fail(409, 'Este e-mail já está cadastrado.'); db.prepare('INSERT INTO users(org_id,sector_id,name,email,password,role) VALUES (?,?,?,?,?,?)').run(user.org_id, sec, name, email, digest, body.role); audit(user, `Usuário cadastrado: ${name}`); });
         return json(201, { ok: true });
+      }
+      const userMatch = /^\/api\/users\/(\d+)$/.exec(path);
+      if (req.method === 'POST' && userMatch) {
+        admin(user); const body = await readBody(req); const name = field(body, 'name', 120);
+        if (!['admin', 'colaborador'].includes(body.role)) fail(400, 'Perfil inválido.');
+        if (typeof body.active !== 'boolean') fail(400, 'Informe se o acesso está ativo.');
+        const sec = sector(body.sector_id, user.org_id);
+        const targetId = Number(userMatch[1]);
+        transaction(() => {
+          admin(user);
+          const target = db.prepare('SELECT * FROM users WHERE id=? AND org_id=?').get(targetId, user.org_id);
+          if (!target) fail(404, 'Pessoa não encontrada.');
+          const reducingAccess = target.active === 1 && target.role === 'admin' && (!body.active || body.role !== 'admin');
+          if (reducingAccess && db.prepare("SELECT COUNT(*) AS total FROM users WHERE org_id=? AND active=1 AND role='admin'").get(user.org_id).total <= 1) fail(409, 'A organização precisa manter um administrador ativo.');
+          if (target.id === user.id && (!body.active || body.role !== 'admin')) fail(409, 'Outro administrador deve alterar seu perfil ou desativar seu acesso.');
+          db.prepare('UPDATE users SET name=?,sector_id=?,role=?,active=? WHERE id=? AND org_id=?').run(name, sec, body.role, body.active ? 1 : 0, target.id, user.org_id);
+          if (!body.active || target.role !== body.role) db.prepare('DELETE FROM sessions WHERE user_id=?').run(target.id);
+          const changes = [];
+          if (target.name !== name) changes.push(`nome: ${target.name} → ${name}`);
+          if (target.sector_id !== sec) changes.push(`setor: #${target.sector_id} → #${sec}`);
+          if (target.role !== body.role) changes.push(`perfil: ${target.role} → ${body.role}`);
+          if (target.active !== Number(body.active)) changes.push(body.active ? 'acesso reativado' : 'acesso desativado');
+          if (changes.length) audit(user, `Pessoa #${target.id} atualizada: ${changes.join('; ')}`);
+        }); return json(200, { ok: true });
       }
       if (req.method === 'POST' && path === '/api/requests') {
         const body = await readBody(req); const title = field(body, 'title', 160); const description = field(body, 'description', 5000); const sec = sector(body.sector_id, user.org_id);

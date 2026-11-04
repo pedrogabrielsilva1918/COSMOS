@@ -9,6 +9,8 @@ Gestão administrativa para empresas privadas e organizações públicas. Primei
 - Login e logout com sessões de 8 horas, cookies HttpOnly e senhas derivadas com scrypt e salt individual.
 - Dados separados por organização no servidor.
 - Cadastro de setores e pessoas, com perfis administrador e colaborador.
+- Edição do nome, setor e perfil; desativação e reativação de pessoas.
+- Bloqueio de login e encerramento de sessões ao desativar o acesso; novo login obrigatório ao alterar o perfil.
 - Solicitações com protocolo, setor responsável, justificativa e prioridade.
 - Aprovação ou recusa com parecer obrigatório e identificação de quem decidiu.
 - Um administrador não pode avaliar a própria solicitação. Cadastre outro administrador para isso.
@@ -65,6 +67,14 @@ Os dados ficam em `data/cosmos.sqlite`. A execução precisa de disco persistent
 
 Há um `.env.example` como referência. Variáveis podem ser definidas no ambiente ou copiadas para `.env` e carregadas com `node --env-file=.env server.js`. O arquivo `.env` não é carregado automaticamente por `npm start` e não deve ser enviado ao Git.
 
+## Gerenciar pessoas
+
+Como administrador, abra **Pessoas → Editar** para alterar nome, setor, perfil ou situação de acesso. O e-mail permanece como identificador de login e não é editável nesta versão. Desativar preserva os pedidos e o histórico; reativar permite entrar novamente com a senha existente. Alterar o perfil também encerra as sessões da pessoa.
+
+Um administrador não pode desativar o próprio acesso nem reduzir o próprio perfil: outro administrador deve fazê-lo. O servidor também impede a remoção do último administrador ativo. Mudanças são registradas no histórico.
+
+A atualização adiciona automaticamente a coluna `active` ao banco existente e mantém as contas atuais ativas. Pare o servidor e faça backup do diretório `data/` antes de atualizar. A migração é aditiva; não apaga cadastros, pedidos ou sessões.
+
 ## Testes
 
 ```bash
@@ -96,6 +106,7 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | GET | `/api/workspace` | Dados visíveis ao usuário autenticado |
 | POST | `/api/sectors` | Administrador |
 | POST | `/api/users` | Administrador |
+| POST | `/api/users/:id` | Administrador da mesma organização: edita nome, setor, perfil e acesso |
 | POST | `/api/requests` | Autenticado |
 | POST | `/api/requests/:id/decision` | Administrador da mesma organização, exceto autor |
 
@@ -103,6 +114,6 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 
 Este MVP não é uma implantação de produção. Antes de usar dados reais de funcionários ou órgãos, configure HTTPS, persistência e backups com restauração validada, revisão de acesso e política de retenção. O cadastro de organizações está aberto; restrinja-o no ambiente institucional se necessário. A proteção de tentativas é por IP e processo, sem confiar em cabeçalhos de proxy.
 
-Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, desativação/edição de contas e setores, anexos, edição de solicitações, notificações, exportação ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
+Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail e edição/desativação de setores, anexos, edição de solicitações, notificações, exportação ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
 
 Faça backup com o servidor parado, copiando o diretório `data` completo (incluindo eventuais arquivos WAL/SHM). Guarde o backup fora do repositório e limite o acesso ao diretório do banco.
