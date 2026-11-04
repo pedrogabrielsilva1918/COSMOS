@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { defaultSectorDescription } from './sector-descriptions.js';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual, createHash } from 'node:crypto';
 import { promisify, parseArgs } from 'node:util';
@@ -52,6 +53,11 @@ function csvCell(value) {
   if (/^[\s\u0000-\u001f]*[=+@-]/u.test(text) || /^[\t\r\n]/.test(text)) text = "'" + text;
   return '"' + text.replace(/"/g, '""') + '"';
 }
+function sectorDescription(body, fallback = '') {
+  if (!Object.hasOwn(body, 'description')) return fallback;
+  if (typeof body.description !== 'string' || body.description.trim().length > 300) fail(400, 'A descrição deve ser um texto com até 300 caracteres.');
+  return body.description.trim();
+}
 async function readBody(req) {
   if (!(req.headers['content-type'] || '').startsWith('application/json')) fail(415, 'Envie JSON.');
   let data = '';
@@ -86,6 +92,14 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
   }
   if (!db.prepare('PRAGMA table_info(requests)').all().some(column => column.name === 'due_date')) {
     db.exec('ALTER TABLE requests ADD COLUMN due_date TEXT');
+  }
+  if (!db.prepare('PRAGMA table_info(sectors)').all().some(column => column.name === 'description')) {
+    transaction(() => {
+      db.exec("ALTER TABLE sectors ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+      for (const sector of db.prepare('SELECT id,name FROM sectors').all()) {
+        db.prepare('UPDATE sectors SET description=? WHERE id=?').run(defaultSectorDescription(sector.name), sector.id);
+      }
+    });
   }
   const rate = new Map();
   const janitor = setInterval(() => {
@@ -146,7 +160,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const user = transaction(() => {
           if (db.prepare('SELECT id FROM users WHERE email=?').get(email)) fail(409, 'Este e-mail já está cadastrado.');
           const org = Number(db.prepare('INSERT INTO organizations(name,type) VALUES (?,?)').run(organization, body.type).lastInsertRowid);
-          const sec = Number(db.prepare('INSERT INTO sectors(org_id,name) VALUES (?,?)').run(org, 'Administração').lastInsertRowid);
+          const sec = Number(db.prepare('INSERT INTO sectors(org_id,name,description) VALUES (?,?,?)').run(org, 'Administração', defaultSectorDescription('Administração')).lastInsertRowid);
           const id = Number(db.prepare('INSERT INTO users(org_id,sector_id,name,email,password,role) VALUES (?,?,?,?,?,?)').run(org, sec, name, email, digest, 'admin').lastInsertRowid);
           const user = db.prepare('SELECT * FROM users WHERE id=?').get(id); audit(user, 'Organização cadastrada'); return user;
         }); issueSession(res, user); return json(201, safeUser(user));
@@ -187,7 +201,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       }
       if (req.method === 'GET' && path === '/api/workspace') {
         const organization = db.prepare('SELECT * FROM organizations WHERE id=?').get(user.org_id);
-        const sectors = db.prepare('SELECT id,name,active FROM sectors WHERE org_id=? ORDER BY name').all(user.org_id);
+        const sectors = db.prepare('SELECT id,name,active,description FROM sectors WHERE org_id=? ORDER BY name').all(user.org_id);
         const users = user.role === 'admin' ? db.prepare('SELECT u.id,u.name,u.email,u.role,u.active,u.sector_id,s.name AS sector FROM users u LEFT JOIN sectors s ON s.id=u.sector_id WHERE u.org_id=? ORDER BY u.name').all(user.org_id) : [];
         const requests = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by WHERE r.org_id=? ${user.role === 'admin' ? '' : 'AND r.user_id=?'} ORDER BY r.id DESC`).all(...(user.role === 'admin' ? [user.org_id] : [user.org_id, user.id]));
         const history = user.role === 'admin' ? db.prepare('SELECT a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id WHERE a.org_id=? ORDER BY a.id DESC LIMIT 50').all(user.org_id) : [];
@@ -230,7 +244,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
           for (const name of names) {
             const found = sectors.find(sector => normalize(sector.name) === normalize(name));
             if (found) { existing.push({ id: found.id, name: found.name, active: found.active }); continue; }
-            const id = Number(db.prepare('INSERT INTO sectors(org_id,name) VALUES (?,?)').run(user.org_id, name).lastInsertRowid);
+            const id = Number(db.prepare('INSERT INTO sectors(org_id,name,description) VALUES (?,?,?)').run(user.org_id, name, defaultSectorDescription(name)).lastInsertRowid);
             created.push({ id, name }); audit(user, `Setor criado: ${name}`);
           }
           return { created, existing };
@@ -238,7 +252,8 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       }
       if (req.method === 'POST' && path === '/api/sectors') {
         admin(user); const body = await readBody(req); const name = field(body, 'name', 120);
-        transaction(() => { if (db.prepare('SELECT id FROM sectors WHERE org_id=? AND name=?').get(user.org_id, name)) fail(409, 'Este setor já existe.'); db.prepare('INSERT INTO sectors(org_id,name) VALUES (?,?)').run(user.org_id, name); audit(user, `Setor criado: ${name}`); });
+        const description = sectorDescription(body, defaultSectorDescription(name));
+        transaction(() => { if (db.prepare('SELECT id FROM sectors WHERE org_id=? AND name=?').get(user.org_id, name)) fail(409, 'Este setor já existe.'); db.prepare('INSERT INTO sectors(org_id,name,description) VALUES (?,?,?)').run(user.org_id, name, description); audit(user, `Setor criado: ${name}`); });
         return json(201, { ok: true });
       }
       const sectorMatch = /^\/api\/sectors\/(\d+)$/.exec(path);
@@ -248,14 +263,16 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         transaction(() => {
           const target = db.prepare('SELECT * FROM sectors WHERE id=? AND org_id=?').get(Number(sectorMatch[1]), user.org_id);
           if (!target) fail(404, 'Setor não encontrado.');
+          const description = sectorDescription(body, target.description);
           if (db.prepare('SELECT id FROM sectors WHERE org_id=? AND name=? AND id<>?').get(user.org_id, name, target.id)) fail(409, 'Este nome de setor já existe.');
           if (!body.active) {
             if (db.prepare('SELECT id FROM users WHERE org_id=? AND sector_id=? AND active=1 LIMIT 1').get(user.org_id, target.id)) fail(409, 'Transfira ou desative as pessoas ativas antes de desativar este setor.');
             if (db.prepare("SELECT id FROM requests WHERE org_id=? AND sector_id=? AND status='pendente' LIMIT 1").get(user.org_id, target.id)) fail(409, 'Avalie as solicitações pendentes antes de desativar este setor.');
           }
-          db.prepare('UPDATE sectors SET name=?,active=? WHERE id=? AND org_id=?').run(name, body.active ? 1 : 0, target.id, user.org_id);
+          db.prepare('UPDATE sectors SET name=?,active=?,description=? WHERE id=? AND org_id=?').run(name, body.active ? 1 : 0, description, target.id, user.org_id);
           const changes = [];
           if (target.name !== name) changes.push(`nome: ${target.name} → ${name}`);
+          if (target.description !== description) changes.push('descrição atualizada');
           if (target.active !== Number(body.active)) changes.push(body.active ? 'reativado' : 'desativado');
           if (changes.length) audit(user, `Setor #${target.id} atualizado: ${changes.join('; ')}`);
         }); return json(200, { ok: true });
