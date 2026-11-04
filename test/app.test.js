@@ -76,3 +76,36 @@ test('cookies seguros e limite de tentativas', async t => {
   for (let i = 0; i < 20; i++) { response = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); await response.json(); }
   assert.equal(response.status, 429);
 });
+
+test('troca de senha exige senha atual e encerra somente as sessões da própria conta', async t => {
+  const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  async function call(path, body, cookie = '') {
+    const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  }
+  const oldPassword = 'Senha-original-2026'; const newPassword = 'Nova-senha-segura-2026';
+  const a = await call('/api/register', { name: 'Admin', organization: 'Empresa', type: 'privada', email: 'admin@exemplo.com', password: oldPassword });
+  const sector = (await call('/api/workspace', undefined, a.cookie)).data.sectors[0].id;
+  await call('/api/users', { name: 'Colaborador', email: 'colab@exemplo.com', password: oldPassword, role: 'colaborador', sector_id: sector }, a.cookie);
+  const c = await call('/api/login', { email: 'colab@exemplo.com', password: oldPassword });
+  const c2 = await call('/api/login', { email: 'colab@exemplo.com', password: oldPassword });
+  assert.equal((await call('/api/account/password', { currentPassword: oldPassword, newPassword })).status, 401);
+  assert.equal((await call('/api/account/password', { currentPassword: 'errada', newPassword }, c.cookie)).status, 400);
+  assert.equal((await call('/api/account/password', { currentPassword: oldPassword, newPassword: 'curta' }, c.cookie)).status, 400);
+  assert.equal((await call('/api/account/password', { currentPassword: oldPassword, newPassword: oldPassword }, c.cookie)).status, 400);
+  assert.equal((await call('/api/workspace', undefined, c2.cookie)).status, 200);
+  // Um user_id enviado no corpo não permite trocar a senha de outro usuário.
+  const changed = await call('/api/account/password', { currentPassword: oldPassword, newPassword, user_id: a.data.id }, c.cookie);
+  assert.equal(changed.status, 200); assert.equal(changed.cookie, 'cosmos=');
+  assert.equal((await call('/api/workspace', undefined, c.cookie)).status, 401);
+  assert.equal((await call('/api/workspace', undefined, c2.cookie)).status, 401);
+  assert.equal((await call('/api/login', { email: 'colab@exemplo.com', password: oldPassword })).status, 401);
+  assert.equal((await call('/api/login', { email: 'colab@exemplo.com', password: newPassword })).status, 200);
+  assert.equal((await call('/api/workspace', undefined, a.cookie)).status, 200);
+  assert.equal((await call('/api/login', { email: 'admin@exemplo.com', password: oldPassword })).status, 200);
+  const history = (await call('/api/workspace', undefined, a.cookie)).data.history;
+  assert.ok(history.some(h => h.action.includes('Senha da própria conta alterada')));
+  assert.equal(JSON.stringify(history).includes(newPassword), false);
+});

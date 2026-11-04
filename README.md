@@ -5,6 +5,7 @@ Gestão administrativa para empresas privadas e organizações públicas. Primei
 ## O que está disponível
 
 - Cadastro de organização pública ou privada e do primeiro administrador.
+- Troca da própria senha com encerramento de todas as sessões.
 - Login e logout com sessões de 8 horas, cookies HttpOnly e senhas derivadas com scrypt e salt individual.
 - Dados separados por organização no servidor.
 - Cadastro de setores e pessoas, com perfis administrador e colaborador.
@@ -34,6 +35,14 @@ Abra **http://localhost:3000**. Não é necessário executar `npm install`.
 6. Entre como outro administrador, abra o pedido e registre a decisão.
 
 Não há usuário ou senha padrão, nem dados fictícios inseridos automaticamente.
+
+## Executar no GitHub Codespaces
+
+Com Node.js 24+ no Codespace, execute `npm start`. Abra a aba **PORTS / PORTAS**, localize a porta **3000** e escolha **Abrir no navegador**. Mantenha a porta privada durante os testes.
+
+Para atualizar após integrar uma alteração no GitHub: pare o servidor com `Ctrl+C`, execute `git pull --ff-only` na branch `main` e inicie novamente com `npm start`. Se houver alterações locais, preserve-as antes de atualizar; não use comandos de descarte. O banco em `data/` é ignorado pelo Git e não é substituído por esta atualização.
+
+Em **Minha conta**, qualquer usuário pode trocar a própria senha informando a atual. A nova senha deve ser diferente e ter pelo menos 12 caracteres. Todas as sessões da conta são encerradas, inclusive em outros navegadores. Não há recuperação de senha esquecida nesta versão.
 
 ## Executar no Replit
 
@@ -83,6 +92,7 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/register` | Cadastro de nova organização e administrador |
 | POST | `/api/login` | Login |
 | POST | `/api/logout` | Autenticado |
+| POST | `/api/account/password` | Troca de senha da própria conta; exige senha atual |
 | GET | `/api/workspace` | Dados visíveis ao usuário autenticado |
 | POST | `/api/sectors` | Administrador |
 | POST | `/api/users` | Administrador |
@@ -93,6 +103,6 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 
 Este MVP não é uma implantação de produção. Antes de usar dados reais de funcionários ou órgãos, configure HTTPS, persistência e backups com restauração validada, revisão de acesso e política de retenção. O cadastro de organizações está aberto; restrinja-o no ambiente institucional se necessário. A proteção de tentativas é por IP e processo, sem confiar em cabeçalhos de proxy.
 
-Ainda não há recuperação/troca de senha, MFA, convites por e-mail, desativação/edição de contas e setores, anexos, edição de solicitações, notificações, exportação ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
+Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, desativação/edição de contas e setores, anexos, edição de solicitações, notificações, exportação ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
 
 Faça backup com o servidor parado, copiando o diretório `data` completo (incluindo eventuais arquivos WAL/SHM). Guarde o backup fora do repositório e limite o acesso ao diretório do banco.
