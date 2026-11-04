@@ -13,6 +13,7 @@ Gestão administrativa para empresas privadas e organizações públicas. Primei
 - Bloqueio de login e encerramento de sessões ao desativar o acesso; novo login obrigatório ao alterar o perfil.
 - Solicitações com protocolo, setor responsável, justificativa e prioridade.
 - Aprovação ou recusa com parecer obrigatório e identificação de quem decidiu.
+- Comentários por solicitação, com autor, data e carregamento de mensagens anteriores.
 - Um administrador não pode avaliar a própria solicitação. Cadastre outro administrador para isso.
 - Colaboradores veem apenas seus pedidos; administradores veem todos os pedidos da organização.
 - Painel com indicadores, busca por título/protocolo e filtro por situação.
@@ -67,6 +68,14 @@ Os dados ficam em `data/cosmos.sqlite`. A execução precisa de disco persistent
 
 Há um `.env.example` como referência. Variáveis podem ser definidas no ambiente ou copiadas para `.env` e carregadas com `node --env-file=.env server.js`. O arquivo `.env` não é carregado automaticamente por `npm start` e não deve ser enviado ao Git.
 
+## Conversar sobre uma solicitação
+
+Abra o pedido e use **Comentários** para registrar esclarecimentos. O autor do pedido e os administradores da mesma organização podem ler e comentar, inclusive depois de uma aprovação ou recusa. Outros colaboradores não podem consultar a conversa.
+
+Cada mensagem aceita até 2.000 caracteres. A tela carrega as 50 mais recentes, com **Carregar anteriores** para consultar as demais e **Atualizar** para buscar novas mensagens. Não há atualização automática, edição ou exclusão de comentários nesta versão. Desativar um autor preserva suas mensagens; o nome exibido acompanha seu cadastro atual.
+
+O servidor cria automaticamente a tabela de comentários ao iniciar, sem alterar pedidos ou contas. Comentários não são incluídos na resposta geral do workspace: são consultados por pedido, com validação de acesso no servidor.
+
 ## Gerenciar pessoas
 
 Como administrador, abra **Pessoas → Editar** para alterar nome, setor, perfil ou situação de acesso. O e-mail permanece como identificador de login e não é editável nesta versão. Desativar preserva os pedidos e o histórico; reativar permite entrar novamente com a senha existente. Alterar o perfil também encerra as sessões da pessoa.
@@ -108,6 +117,8 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/users` | Administrador |
 | POST | `/api/users/:id` | Administrador da mesma organização: edita nome, setor, perfil e acesso |
 | POST | `/api/requests` | Autenticado |
+| GET | `/api/requests/:id/comments?before=ID` | Autor ou administrador da mesma organização; páginas de até 50 mensagens |
+| POST | `/api/requests/:id/comments` | Autor ou administrador da mesma organização; JSON com `content` |
 | POST | `/api/requests/:id/decision` | Administrador da mesma organização, exceto autor |
 
 ## Limites desta versão

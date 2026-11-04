@@ -179,3 +179,60 @@ test('migração adiciona acesso ativo a banco antigo sem perder cadastros nem s
   await new Promise(resolve => app.close(resolve)); app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   response = await fetch(`http://127.0.0.1:${app.address().port}/api/workspace`, { headers: { cookie } }); assert.equal(response.status, 200); await response.json();
 });
+
+test('comentários respeitam visibilidade, limites, paginação e persistência', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'cosmos-comments-')); const databasePath = join(dir, 'comments.sqlite');
+  let app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  let base = `http://127.0.0.1:${app.address().port}`;
+  t.after(async () => { if (app.listening) await new Promise(resolve => app.close(resolve)); rmSync(dir, { recursive: true, force: true }); });
+  async function call(path, body, cookie = '') {
+    const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  }
+  const password = 'Senha-de-teste-2026';
+  const a = await call('/api/register', { name: 'Admin', organization: 'Empresa', type: 'privada', email: 'a@empresa.com', password });
+  const b = await call('/api/register', { name: 'Outro admin', organization: 'Outra', type: 'publica', email: 'b@empresa.com', password });
+  const sector = (await call('/api/workspace', undefined, a.cookie)).data.sectors[0].id;
+  for (const [name, email] of [['Carlos', 'c@empresa.com'], ['Dani', 'd@empresa.com']]) {
+    assert.equal((await call('/api/users', { name, email, password, role: 'colaborador', sector_id: sector }, a.cookie)).status, 201);
+  }
+  const c = await call('/api/login', { email: 'c@empresa.com', password });
+  const d = await call('/api/login', { email: 'd@empresa.com', password });
+  const request = await call('/api/requests', { title: 'Pedido', description: 'Justificativa', priority: 'normal', sector_id: sector }, c.cookie);
+  const path = `/api/requests/${request.data.id}/comments`;
+  assert.equal((await call(path)).status, 401);
+  assert.deepEqual((await call(path, undefined, c.cookie)).data, { comments: [], nextBefore: null });
+  for (const cookie of [b.cookie, d.cookie]) {
+    assert.equal((await call(path, undefined, cookie)).status, 404);
+    assert.equal((await call(path, { content: 'Tentativa' }, cookie)).status, 404);
+  }
+  assert.equal((await call('/api/requests/999999/comments', undefined, a.cookie)).status, 404);
+  assert.equal((await call(path, { content: '   ' }, c.cookie)).status, 400);
+  assert.equal((await call(path, { content: 'x'.repeat(2001) }, c.cookie)).status, 400);
+  assert.equal((await call(path + '?before=invalido', undefined, a.cookie)).status, 400);
+  assert.equal((await call(path + '?before=0', undefined, a.cookie)).status, 400);
+  const original = '<script>texto literal</script>\nSegunda linha';
+  assert.equal((await call(path, { content: original }, c.cookie)).status, 201);
+  assert.equal((await call(path, { content: 'Recebido pela administração.' }, a.cookie)).status, 201);
+  for (let i = 0; i < 50; i++) assert.equal((await call(path, { content: `Mensagem ${i}` }, c.cookie)).status, 201);
+  const latest = (await call(path, undefined, a.cookie)).data;
+  assert.equal(latest.comments.length, 50); assert.ok(latest.nextBefore);
+  assert.equal(latest.comments[0].content, 'Mensagem 0'); assert.equal(latest.comments[49].content, 'Mensagem 49');
+  const previous = (await call(path + `?before=${latest.nextBefore}`, undefined, c.cookie)).data;
+  assert.equal(previous.comments.length, 2); assert.equal(previous.nextBefore, null);
+  assert.equal(previous.comments[0].content, original); assert.equal(previous.comments[0].author, 'Carlos');
+  assert.ok(previous.comments[0].created_at); assert.equal(previous.comments[1].author, 'Admin');
+  assert.equal(new Set([...previous.comments, ...latest.comments].map(comment => comment.id)).size, 52);
+  assert.equal((await call(`/api/requests/${request.data.id}/decision`, { status: 'aprovada', decision: 'Autorizado' }, a.cookie)).status, 200);
+  assert.equal((await call(path, { content: 'Obrigado após a aprovação.' }, c.cookie)).status, 201);
+  await new Promise(resolve => app.close(resolve));
+  app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening'); base = `http://127.0.0.1:${app.address().port}`;
+  assert.equal((await call(path, undefined, c.cookie)).data.comments.at(-1).content, 'Obrigado após a aprovação.');
+  assert.equal((await call(`/api/users/${c.data.id}`, { name: 'Carlos', role: 'colaborador', active: false, sector_id: sector }, a.cookie)).status, 200);
+  assert.equal((await call(path, undefined, c.cookie)).status, 401);
+  assert.equal((await call(path, { content: 'Bloqueado' }, c.cookie)).status, 401);
+  assert.equal((await call(path, undefined, a.cookie)).data.comments.length, 50);
+  const workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  assert.ok(workspace.history.some(event => event.action.includes('Comentário adicionado')));
+  assert.equal(JSON.stringify(workspace).includes(original), false);
+});
