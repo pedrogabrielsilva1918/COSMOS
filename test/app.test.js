@@ -445,3 +445,62 @@ test('prazos: migração, permissões, datas válidas, filtro CSV e persistênci
   assert.equal(workspace.requests.find(r => r.id === ids[1]).due_date, today);
   assert.ok(workspace.history.some(h => h.action.includes(`Prazo da solicitação #${ids[0]}`) && h.action.includes(yesterday)));
 });
+
+test('três setores sugeridos: administrador, organização conectada e repetição sem duplicar', async t => {
+  const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  async function call(path, body, cookie = '') {
+    const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  }
+  const password = 'Senha-de-teste-2026';
+  const a = await call('/api/register', { name: 'Admin', organization: 'Empresa A', type: 'privada', email: 'a@empresa.com', password });
+  const b = await call('/api/register', { name: 'Outro', organization: 'Empresa B', type: 'publica', email: 'b@empresa.com', password });
+  const wa = (await call('/api/workspace', undefined, a.cookie)).data;
+  const wb = (await call('/api/workspace', undefined, b.cookie)).data;
+  await call('/api/users', { name: 'Colaborador', email: 'c@empresa.com', password, role: 'colaborador', sector_id: wa.sectors[0].id }, a.cookie);
+  const c = await call('/api/login', { email: 'c@empresa.com', password });
+  assert.equal((await call('/api/sectors/suggested', {})).status, 401);
+  assert.equal((await call('/api/sectors/suggested', {}, c.cookie)).status, 403);
+  const created = await call('/api/sectors/suggested', { org_id: wb.organization.id }, a.cookie);
+  assert.equal(created.status, 201); assert.deepEqual(created.data.created.map(s => s.name), ['Jurídico', 'Compras e Licitações', 'Patrimônio e Almoxarifado']);
+  assert.equal(created.data.existing.length, 0);
+  let workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  assert.equal(workspace.sectors.length, 4); assert.equal(workspace.history.filter(h => h.action.startsWith('Setor criado:')).length, 3);
+  assert.equal((await call('/api/workspace', undefined, b.cookie)).data.sectors.length, 1);
+  const repeated = await call('/api/sectors/suggested', {}, a.cookie);
+  assert.equal(repeated.status, 200); assert.equal(repeated.data.created.length, 0); assert.equal(repeated.data.existing.length, 3);
+  workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  assert.equal(workspace.sectors.length, 4); assert.equal(workspace.history.filter(h => h.action.startsWith('Setor criado:')).length, 3);
+  // Acentos, caixa, espaços e situação original não causam duplicação ou reativação.
+  await call('/api/sectors', { name: 'JURIDICO' }, b.cookie);
+  await call('/api/sectors', { name: 'Compras  e   Licitacoes' }, b.cookie);
+  let other = (await call('/api/workspace', undefined, b.cookie)).data;
+  const juridico = other.sectors.find(s => s.name === 'JURIDICO');
+  await call(`/api/sectors/${juridico.id}`, { name: juridico.name, active: false }, b.cookie);
+  const partial = await call('/api/sectors/suggested', {}, b.cookie);
+  assert.equal(partial.status, 201); assert.equal(partial.data.created.length, 1); assert.equal(partial.data.existing.length, 2);
+  assert.equal(partial.data.created[0].name, 'Patrimônio e Almoxarifado');
+  other = (await call('/api/workspace', undefined, b.cookie)).data;
+  assert.equal(other.sectors.length, 4); assert.equal(other.sectors.find(s => s.id === juridico.id).active, 0);
+  assert.ok(other.sectors.some(s => s.name === 'Compras  e   Licitacoes'));
+  assert.equal((await call('/api/workspace', undefined, a.cookie)).data.sectors.length, 4);
+});
+
+test('falha no lote de setores não deixa cadastros nem registros parciais', async t => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const dir = mkdtempSync(join(tmpdir(), 'cosmos-sector-batch-')); const databasePath = join(dir, 'batch.sqlite');
+  const app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  t.after(async () => { await new Promise(resolve => app.close(resolve)); rmSync(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${app.address().port}`;
+  const registered = await fetch(base + '/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Admin', organization: 'Teste', type: 'privada', email: 'batch@empresa.com', password: 'Senha-de-teste-2026' }) });
+  const cookie = registered.headers.get('set-cookie').split(';')[0]; await registered.json();
+  const inspection = new DatabaseSync(databasePath);
+  inspection.exec("CREATE TRIGGER fail_batch BEFORE INSERT ON sectors WHEN NEW.name='Patrimônio e Almoxarifado' BEGIN SELECT RAISE(ABORT,'simulated failure'); END;");
+  const response = await fetch(base + '/api/sectors/suggested', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: '{}' });
+  assert.equal(response.status, 500); await response.json();
+  assert.equal(inspection.prepare('SELECT COUNT(*) AS total FROM sectors').get().total, 1);
+  assert.equal(inspection.prepare("SELECT COUNT(*) AS total FROM audit WHERE action LIKE 'Setor criado:%'").get().total, 0);
+  inspection.close();
+});
