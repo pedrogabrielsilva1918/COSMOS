@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual, createHash } from 'node:crypto';
-import { promisify } from 'node:util';
+import { promisify, parseArgs } from 'node:util';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -304,6 +304,13 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
   return server;
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const server = createApp(); const port = Number(process.env.PORT || 3000);
-  server.listen(port, process.env.HOST || '0.0.0.0', () => console.log(`COSMOS disponível na porta ${port}`));
+  const { values } = parseArgs({ options: { port: { type: 'string' }, host: { type: 'string' }, strictPort: { type: 'boolean' } } });
+  const portValue = values.port ?? process.env.PORT ?? '3000';
+  if (!/^\d+$/.test(portValue) || Number(portValue) > 65535) throw new Error('A porta deve ser um número entre 0 e 65535.');
+  const host = values.host ?? process.env.HOST ?? '0.0.0.0';
+  if (!host.trim()) throw new Error('Informe um host válido.');
+  const server = createApp();
+  // O servidor sempre falha quando a porta está ocupada, inclusive com --strictPort.
+  server.on('error', error => { console.error(`Não foi possível iniciar o COSMOS: ${error.code || error.name}`); process.exitCode = 1; server.close(); });
+  server.listen(Number(portValue), host, () => console.log(`COSMOS disponível na porta ${server.address().port}`));
 }

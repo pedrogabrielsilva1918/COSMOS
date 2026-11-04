@@ -59,6 +59,16 @@ Em **Minha conta**, qualquer usuário pode trocar a própria senha informando a 
 
 Os dados ficam em `data/cosmos.sqlite`. A execução precisa de disco persistente; instâncias efêmeras podem perder o arquivo ao reiniciar ou republicar. Não use múltiplas instâncias compartilhando esse SQLite. GitHub armazena o código; não executa o backend. GitHub Pages não é compatível com este servidor.
 
+## Porta de desenvolvimento
+
+A prévia e o servidor aceitam porta e host pela linha de comando:
+
+```bash
+npm run dev -- --host 0.0.0.0 --port 4173 --strictPort
+```
+
+As opções `--port` e `--host` têm prioridade sobre `PORT` e `HOST`; sem opções ou variáveis, o padrão continua `0.0.0.0:3000`. A porta não é trocada silenciosamente se estiver ocupada. A opção `--strictPort` é aceita para compatibilidade com ferramentas de prévia, mas esse comportamento já é o padrão. Para uso normal no Codespaces, continue com `npm start` e abra a porta 3000.
+
 ## Configuração
 
 | Variável | Padrão | Uso |
@@ -109,6 +119,12 @@ npm test
 ```
 
 Testes de integração com banco temporário verificam autenticação, persistência após reinício, permissões, isolamento entre organizações, decisões, bloqueio de autoaprovação, expiração por logout, origem das requisições e limite de tentativas.
+
+## Conferência da interface
+
+Nesta etapa, as telas foram conferidas no navegador com dados fictícios e respostas de API simuladas, usando os arquivos reais da interface. Foram verificados painel, formulários de pessoa/setor/conta, criação e decisão de solicitações, comentários e navegação do colaborador em uma largura de 390 px. O menu móvel agora quebra em linhas, mantendo suas opções visíveis.
+
+Essa conferência não substitui um teste com login real no seu Codespace. Autenticação, permissões, persistência e exportação são verificadas separadamente pelos testes de integração da API. O teste de inicialização também executa o servidor com host/porta explícitos, como ferramentas de prévia fazem.
 
 ## Estrutura
 

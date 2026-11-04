@@ -14,7 +14,7 @@ async function api(path, body) {
   return data;
 }
 function notify(message) { clearTimeout(noticeTimer); $('#notice').textContent = message; $('#notice').hidden = false; noticeTimer = setTimeout(() => { $('#notice').hidden = true; }, 6000); }
-function showAuth() { $('#workspace').hidden = true; $('#auth').hidden = false; }
+function showAuth() { currentView = 'dashboard'; $('#request-search').value = ''; $('#status-filter').value = ''; $('#workspace').hidden = true; $('#auth').hidden = false; }
 function authMode(value) {
   registering = value;
   $('#registration-fields').hidden = !value;
@@ -110,6 +110,7 @@ $('#export-requests').onclick = async () => {
 async function refresh() {
   state = await api('/workspace'); $('#auth').hidden = true; $('#workspace').hidden = false;
   const admin = state.user.role === 'admin';
+  if (!admin && ['people', 'history'].includes(currentView)) currentView = 'dashboard';
   for (const el of document.querySelectorAll('[data-admin]')) el.hidden = !admin;
   $('#org-name').textContent = state.organization.name; $('#org-type').textContent = state.organization.type === 'publica' ? 'Organização pública' : 'Empresa privada';
   $('#account-name').textContent = state.user.name; $('#account-role').textContent = admin ? 'Administrador' : 'Colaborador';

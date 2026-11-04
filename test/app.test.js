@@ -348,3 +348,21 @@ test('setores: edição isolada, dependências, desativação e reativação sem
   assert.equal((await call('/api/requests', { title: 'Novo pedido', description: 'Teste após reativação', priority: 'normal', sector_id: sector }, returned.cookie)).status, 201);
   assert.equal((await call('/api/workspace', undefined, b.cookie)).data.sectors.length, 1);
 });
+
+test('inicialização respeita host e porta explícitos usados por prévias', { timeout: 15000 }, async t => {
+  const { spawn } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const dir = mkdtempSync(join(tmpdir(), 'cosmos-cli-'));
+  const child = spawn(process.execPath, [fileURLToPath(new URL('../server.js', import.meta.url)), '--host', '127.0.0.1', '--port', '0', '--strictPort'], {
+    env: { ...process.env, PORT: 'invalid-environment-value', DATABASE_PATH: join(dir, 'cli.sqlite') }, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let diagnostics = ''; child.stderr.on('data', data => { diagnostics += data; });
+  t.after(async () => { if (child.exitCode === null) { const stopped = once(child, 'exit'); child.kill(); await stopped; } rmSync(dir, { recursive: true, force: true }); });
+  const port = await new Promise((resolve, reject) => {
+    let output = '';
+    child.stdout.on('data', chunk => { output += chunk; const match = /COSMOS disponível na porta (\d+)/.exec(output); if (match) resolve(Number(match[1])); });
+    child.once('error', reject); child.once('exit', code => reject(new Error(`Servidor encerrou (${code}): ${diagnostics}`)));
+  });
+  assert.ok(port > 0);
+  const page = await fetch(`http://127.0.0.1:${port}/`); assert.equal(page.status, 200); assert.ok((await page.text()).includes('COSMOS'));
+});
