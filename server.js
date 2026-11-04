@@ -66,6 +66,9 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
   if (!db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'active')) {
     db.exec('ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))');
   }
+  if (!db.prepare('PRAGMA table_info(sectors)').all().some(column => column.name === 'active')) {
+    db.exec('ALTER TABLE sectors ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))');
+  }
   const rate = new Map();
   const janitor = setInterval(() => {
     const now = Date.now();
@@ -75,8 +78,10 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
   function transaction(fn) { db.exec('BEGIN IMMEDIATE'); try { const result = fn(); db.exec('COMMIT'); return result; } catch (e) { db.exec('ROLLBACK'); throw e; } }
   function audit(user, action) { db.prepare('INSERT INTO audit(org_id,actor_id,action) VALUES (?,?,?)').run(user.org_id, user.id, action); }
   function admin(user) { const current = db.prepare('SELECT role,active FROM users WHERE id=?').get(user.id); if (!current?.active || current.role !== 'admin') fail(403, 'Acesso restrito ao administrador.'); }
-  function sector(id, org) {
-    if (!Number.isSafeInteger(id) || !db.prepare('SELECT id FROM sectors WHERE id=? AND org_id=?').get(id, org)) fail(400, 'Selecione um setor da organização.');
+  function sector(id, org, allowInactive = false) {
+    if (!Number.isSafeInteger(id)) fail(400, 'Selecione um setor da organização.');
+    const found = db.prepare('SELECT id,active FROM sectors WHERE id=? AND org_id=?').get(id, org);
+    if (!found || (!allowInactive && !found.active)) fail(400, 'Selecione um setor ativo da organização.');
     return id;
   }
   function issueSession(res, user) {
@@ -164,7 +169,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       }
       if (req.method === 'GET' && path === '/api/workspace') {
         const organization = db.prepare('SELECT * FROM organizations WHERE id=?').get(user.org_id);
-        const sectors = db.prepare('SELECT id,name FROM sectors WHERE org_id=? ORDER BY name').all(user.org_id);
+        const sectors = db.prepare('SELECT id,name,active FROM sectors WHERE org_id=? ORDER BY name').all(user.org_id);
         const users = user.role === 'admin' ? db.prepare('SELECT u.id,u.name,u.email,u.role,u.active,u.sector_id,s.name AS sector FROM users u LEFT JOIN sectors s ON s.id=u.sector_id WHERE u.org_id=? ORDER BY u.name').all(user.org_id) : [];
         const requests = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by WHERE r.org_id=? ${user.role === 'admin' ? '' : 'AND r.user_id=?'} ORDER BY r.id DESC`).all(...(user.role === 'admin' ? [user.org_id] : [user.org_id, user.id]));
         const history = user.role === 'admin' ? db.prepare('SELECT a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id WHERE a.org_id=? ORDER BY a.id DESC LIMIT 50').all(user.org_id) : [];
@@ -197,11 +202,30 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         transaction(() => { if (db.prepare('SELECT id FROM sectors WHERE org_id=? AND name=?').get(user.org_id, name)) fail(409, 'Este setor já existe.'); db.prepare('INSERT INTO sectors(org_id,name) VALUES (?,?)').run(user.org_id, name); audit(user, `Setor criado: ${name}`); });
         return json(201, { ok: true });
       }
+      const sectorMatch = /^\/api\/sectors\/(\d+)$/.exec(path);
+      if (req.method === 'POST' && sectorMatch) {
+        admin(user); const body = await readBody(req); const name = field(body, 'name', 120);
+        if (typeof body.active !== 'boolean') fail(400, 'Informe se o setor está ativo.');
+        transaction(() => {
+          const target = db.prepare('SELECT * FROM sectors WHERE id=? AND org_id=?').get(Number(sectorMatch[1]), user.org_id);
+          if (!target) fail(404, 'Setor não encontrado.');
+          if (db.prepare('SELECT id FROM sectors WHERE org_id=? AND name=? AND id<>?').get(user.org_id, name, target.id)) fail(409, 'Este nome de setor já existe.');
+          if (!body.active) {
+            if (db.prepare('SELECT id FROM users WHERE org_id=? AND sector_id=? AND active=1 LIMIT 1').get(user.org_id, target.id)) fail(409, 'Transfira ou desative as pessoas ativas antes de desativar este setor.');
+            if (db.prepare("SELECT id FROM requests WHERE org_id=? AND sector_id=? AND status='pendente' LIMIT 1").get(user.org_id, target.id)) fail(409, 'Avalie as solicitações pendentes antes de desativar este setor.');
+          }
+          db.prepare('UPDATE sectors SET name=?,active=? WHERE id=? AND org_id=?').run(name, body.active ? 1 : 0, target.id, user.org_id);
+          const changes = [];
+          if (target.name !== name) changes.push(`nome: ${target.name} → ${name}`);
+          if (target.active !== Number(body.active)) changes.push(body.active ? 'reativado' : 'desativado');
+          if (changes.length) audit(user, `Setor #${target.id} atualizado: ${changes.join('; ')}`);
+        }); return json(200, { ok: true });
+      }
       if (req.method === 'POST' && path === '/api/users') {
         admin(user); const body = await readBody(req); const { email, password } = credentials(body); const name = field(body, 'name', 120);
         if (!['admin', 'colaborador'].includes(body.role)) fail(400, 'Perfil inválido.');
         const sec = sector(body.sector_id, user.org_id); const digest = await passwordHash(password);
-        transaction(() => { admin(user); if (db.prepare('SELECT id FROM users WHERE email=?').get(email)) fail(409, 'Este e-mail já está cadastrado.'); db.prepare('INSERT INTO users(org_id,sector_id,name,email,password,role) VALUES (?,?,?,?,?,?)').run(user.org_id, sec, name, email, digest, body.role); audit(user, `Usuário cadastrado: ${name}`); });
+        transaction(() => { admin(user); sector(sec, user.org_id); if (db.prepare('SELECT id FROM users WHERE email=?').get(email)) fail(409, 'Este e-mail já está cadastrado.'); db.prepare('INSERT INTO users(org_id,sector_id,name,email,password,role) VALUES (?,?,?,?,?,?)').run(user.org_id, sec, name, email, digest, body.role); audit(user, `Usuário cadastrado: ${name}`); });
         return json(201, { ok: true });
       }
       const userMatch = /^\/api\/users\/(\d+)$/.exec(path);
@@ -209,12 +233,13 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         admin(user); const body = await readBody(req); const name = field(body, 'name', 120);
         if (!['admin', 'colaborador'].includes(body.role)) fail(400, 'Perfil inválido.');
         if (typeof body.active !== 'boolean') fail(400, 'Informe se o acesso está ativo.');
-        const sec = sector(body.sector_id, user.org_id);
+        const sec = body.sector_id;
         const targetId = Number(userMatch[1]);
         transaction(() => {
           admin(user);
           const target = db.prepare('SELECT * FROM users WHERE id=? AND org_id=?').get(targetId, user.org_id);
           if (!target) fail(404, 'Pessoa não encontrada.');
+          sector(sec, user.org_id, !body.active && sec === target.sector_id);
           const reducingAccess = target.active === 1 && target.role === 'admin' && (!body.active || body.role !== 'admin');
           if (reducingAccess && db.prepare("SELECT COUNT(*) AS total FROM users WHERE org_id=? AND active=1 AND role='admin'").get(user.org_id).total <= 1) fail(409, 'A organização precisa manter um administrador ativo.');
           if (target.id === user.id && (!body.active || body.role !== 'admin')) fail(409, 'Outro administrador deve alterar seu perfil ou desativar seu acesso.');

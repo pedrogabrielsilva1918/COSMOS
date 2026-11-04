@@ -4,3 +4,5 @@
 .request-comments{border-top:1px solid var(--line);margin-top:28px;padding-top:24px}.request-comments .section-heading{margin-bottom:6px}.request-comments h3{font-size:15px}.request-comments [data-older]{margin:15px 0}.request-comment{border:1px solid var(--line);background:#fafbf7;border-radius:8px;padding:14px;margin-top:12px}.request-comment>div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;font-size:11px}.request-comment time{color:var(--muted);font-size:10px}.request-comment p{font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:8px}.request-comments form{margin-top:20px}
 
 .filters #export-requests{white-space:nowrap}.export-hint{margin:-8px 0 18px}
+
+.sector-edit{margin-top:18px;padding-left:0}

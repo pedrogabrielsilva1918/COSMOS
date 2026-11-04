@@ -170,11 +170,11 @@ test('migração adiciona acesso ativo a banco antigo sem perder cadastros nem s
   assert.equal(registered.status, 201); const cookie = registered.headers.get('set-cookie').split(';')[0]; await registered.json();
   await new Promise(resolve => app.close(resolve));
   // Simula exatamente a tabela de usuários da versão anterior.
-  const legacy = new DatabaseSync(databasePath); legacy.exec('ALTER TABLE users DROP COLUMN active'); legacy.close();
+  const legacy = new DatabaseSync(databasePath); legacy.exec('ALTER TABLE users DROP COLUMN active; ALTER TABLE sectors DROP COLUMN active'); legacy.close();
   app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   let response = await fetch(`http://127.0.0.1:${app.address().port}/api/workspace`, { headers: { cookie } });
   assert.equal(response.status, 200); const data = await response.json();
-  assert.equal(data.organization.name, 'Legado'); assert.equal(data.user.active, 1); assert.equal(data.user.name, 'Existente');
+  assert.equal(data.organization.name, 'Legado'); assert.equal(data.sectors[0].active, 1); assert.equal(data.user.active, 1); assert.equal(data.user.name, 'Existente');
   // Uma segunda inicialização não repete a migração.
   await new Promise(resolve => app.close(resolve)); app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   response = await fetch(`http://127.0.0.1:${app.address().port}/api/workspace`, { headers: { cookie } }); assert.equal(response.status, 200); await response.json();
@@ -296,4 +296,55 @@ test('CSV respeita filtros e acessos, preserva caracteres e neutraliza fórmulas
   assert.equal((await exportCSV('', b.cookie)).rows.length, 2);
   await call(`/api/users/${c.data.id}`, { name: '@Carlos', role: 'colaborador', active: false, sector_id: sector }, a.cookie);
   assert.equal((await call('/api/requests/export.csv', undefined, c.cookie)).status, 401);
+});
+
+test('setores: edição isolada, dependências, desativação e reativação sem apagar vínculos', async t => {
+  const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  async function call(path, body, cookie = '') {
+    const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  }
+  const password = 'Senha-de-teste-2026';
+  const a = await call('/api/register', { name: 'Admin', organization: 'Empresa', type: 'privada', email: 'a@empresa.com', password });
+  const b = await call('/api/register', { name: 'Outro', organization: 'Outra', type: 'publica', email: 'b@empresa.com', password });
+  assert.equal((await call('/api/sectors', { name: 'Compras' }, a.cookie)).status, 201);
+  let workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  const adminSector = workspace.sectors.find(s => s.name === 'Administração').id;
+  const sector = workspace.sectors.find(s => s.name === 'Compras').id;
+  assert.equal((await call('/api/users', { name: 'Carlos', email: 'c@empresa.com', password, role: 'colaborador', sector_id: sector }, a.cookie)).status, 201);
+  const c = await call('/api/login', { email: 'c@empresa.com', password });
+  const path = `/api/sectors/${sector}`;
+  assert.equal((await call(path, { name: 'Suprimentos', active: true })).status, 401);
+  assert.equal((await call(path, { name: 'Suprimentos', active: true }, c.cookie)).status, 403);
+  assert.equal((await call(path, { name: 'Suprimentos', active: true }, b.cookie)).status, 404);
+  assert.equal((await call(path, { name: ' ', active: true }, a.cookie)).status, 400);
+  assert.equal((await call(path, { name: 'Suprimentos', active: 'false' }, a.cookie)).status, 400);
+  assert.equal((await call(path, { name: 'Administração', active: true }, a.cookie)).status, 409);
+  assert.equal((await call(path, { name: 'Suprimentos', active: true }, a.cookie)).status, 200);
+  assert.equal((await call('/api/workspace', undefined, a.cookie)).data.users.find(u => u.id === c.data.id).sector, 'Suprimentos');
+  const request = await call('/api/requests', { title: 'Papel', description: 'Para a equipe', priority: 'normal', sector_id: sector }, c.cookie);
+  assert.equal((await call(path, { name: 'Não deve salvar', active: false }, a.cookie)).status, 409);
+  const person = { name: 'Carlos', sector_id: sector, role: 'colaborador', active: false };
+  assert.equal((await call(`/api/users/${c.data.id}`, person, a.cookie)).status, 200);
+  // Mesmo sem pessoas ativas, pedidos pendentes impedem desativação.
+  const blocked = await call(path, { name: 'Não deve salvar', active: false }, a.cookie);
+  assert.equal(blocked.status, 409); assert.match(blocked.data.error, /solicitações pendentes/);
+  assert.equal((await call(`/api/requests/${request.data.id}/decision`, { status: 'aprovada', decision: 'Autorizado' }, a.cookie)).status, 200);
+  assert.equal((await call(path, { name: 'Suprimentos antigo', active: false }, a.cookie)).status, 200);
+  workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  assert.equal(workspace.sectors.find(s => s.id === sector).active, 0);
+  assert.equal(workspace.requests.find(r => r.id === request.data.id).sector, 'Suprimentos antigo');
+  assert.ok(workspace.history.some(h => h.action.includes('Setor #') && h.action.includes('desativado')));
+  assert.equal((await call('/api/requests', { title: 'Bloqueado', description: 'Teste', priority: 'normal', sector_id: sector }, a.cookie)).status, 400);
+  assert.equal((await call('/api/users', { name: 'Nova', email: 'nova@empresa.com', password, role: 'colaborador', sector_id: sector }, a.cookie)).status, 400);
+  // A pessoa já desativada pode manter o vínculo para consulta, mas não voltar a atuar nesse setor.
+  assert.equal((await call(`/api/users/${c.data.id}`, { ...person, name: 'Carlos Inativo' }, a.cookie)).status, 200);
+  assert.equal((await call(`/api/users/${c.data.id}`, { ...person, active: true }, a.cookie)).status, 400);
+  assert.equal((await call(`/api/users/${c.data.id}`, { ...person, sector_id: adminSector, active: true }, a.cookie)).status, 200);
+  const returned = await call('/api/login', { email: 'c@empresa.com', password }); assert.equal(returned.status, 200);
+  assert.equal((await call(path, { name: 'Suprimentos', active: true }, a.cookie)).status, 200);
+  assert.equal((await call('/api/requests', { title: 'Novo pedido', description: 'Teste após reativação', priority: 'normal', sector_id: sector }, returned.cookie)).status, 201);
+  assert.equal((await call('/api/workspace', undefined, b.cookie)).data.sectors.length, 1);
 });
