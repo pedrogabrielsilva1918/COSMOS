@@ -35,6 +35,24 @@ $('#auth-form').onsubmit = async event => {
 };
 async function logout() { try { await api('/logout', {}); state = null; $('#modal').close(); showAuth(); } catch (error) { notify(error.message); } }
 $('#logout').onclick = logout;
+$('#account-settings').onclick = () => {
+  openModal('Minha conta', `<p class="detail-meta">${escapeHTML(state.user.name)}<br>${escapeHTML(state.user.email)}</p><form id="password-form"><label>Senha atual<input name="currentPassword" type="password" required maxlength="128" autocomplete="current-password"></label><label>Nova senha<input name="newPassword" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label><label>Confirme a nova senha<input name="confirmation" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label><p class="hint">Use pelo menos 12 caracteres. Ao salvar, todas as sessões da sua conta serão encerradas. Entre novamente com a nova senha.</p><p id="password-error" class="error" role="alert"></p><div class="form-actions"><button class="primary" type="submit">Alterar senha</button></div></form>`);
+  $('#password-form').onsubmit = async event => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    const errorBox = $('#password-error'); errorBox.textContent = '';
+    if (data.newPassword !== data.confirmation) { errorBox.textContent = 'A confirmação não corresponde à nova senha.'; return; }
+    const button = event.target.querySelector('button'); button.disabled = true;
+    try {
+      await api('/account/password', { currentPassword: data.currentPassword, newPassword: data.newPassword });
+      state = null; currentView = 'dashboard'; $('#modal').close();
+      $('#auth-form').reset(); authMode(false); showAuth();
+      notify('Senha alterada. Entre novamente com a nova senha.');
+    } catch (error) { errorBox.textContent = error.message; }
+    finally { button.disabled = false; }
+  };
+};
+
 const mobileLogout = document.createElement('button'); mobileLogout.className = 'mobile-logout'; mobileLogout.textContent = 'Sair ↪'; mobileLogout.onclick = logout;
 // A conta permanece acessível também no menu compacto.
 const media = window.matchMedia('(max-width:760px)');

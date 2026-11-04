@@ -94,7 +94,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
           let origin; try { origin = new URL(req.headers.origin).host; } catch { fail(403, 'Origem não permitida.'); }
           if (origin !== req.headers.host) fail(403, 'Origem não permitida.');
         }
-        const key = `${req.socket.remoteAddress}:${path === '/api/login' || path === '/api/register' ? 'auth' : 'write'}`;
+        const key = `${req.socket.remoteAddress}:${['/api/login', '/api/register', '/api/account/password'].includes(path) ? 'auth' : 'write'}`;
         const entry = rate.get(key) || { count: 0, until: Date.now() + 600000 };
         if (entry.until < Date.now()) { entry.count = 0; entry.until = Date.now() + 600000; }
         entry.count++; rate.set(key, entry);
@@ -128,6 +128,24 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       if (req.method === 'POST' && path === '/api/logout') {
         db.prepare('DELETE FROM sessions WHERE token=?').run(hash(token));
         res.setHeader('Set-Cookie', `cosmos=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? '; Secure' : ''}`); return json(200, { ok: true });
+      }
+      if (req.method === 'POST' && path === '/api/account/password') {
+        const body = await readBody(req);
+        const currentPassword = field(body, 'currentPassword', 128);
+        const newPassword = field(body, 'newPassword', 128);
+        if (newPassword.length < 12) fail(400, 'A nova senha precisa ter pelo menos 12 caracteres.');
+        if (newPassword === currentPassword) fail(400, 'Escolha uma senha diferente da atual.');
+        if (!await passwordMatches(currentPassword, user.password)) fail(400, 'Senha atual incorreta.');
+        const digest = await passwordHash(newPassword);
+        transaction(() => {
+          // Uma troca concorrente não pode sobrescrever uma senha já alterada.
+          const result = db.prepare('UPDATE users SET password=? WHERE id=? AND password=?').run(digest, user.id, user.password);
+          if (result.changes !== 1) fail(409, 'A senha já foi alterada. Entre novamente.');
+          db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id);
+          audit(user, 'Senha da própria conta alterada; sessões encerradas');
+        });
+        res.setHeader('Set-Cookie', `cosmos=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? '; Secure' : ''}`);
+        return json(200, { ok: true });
       }
       if (req.method === 'GET' && path === '/api/workspace') {
         const organization = db.prepare('SELECT * FROM organizations WHERE id=?').get(user.org_id);
