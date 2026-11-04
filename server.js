@@ -31,6 +31,12 @@ function credentials(body) {
   if (password.length < 12) fail(400, 'A senha precisa ter pelo menos 12 caracteres.');
   return { email, password };
 }
+function csvCell(value) {
+  let text = String(value ?? '').replace(/\u0000/g, '');
+  // Aspas tratam separadores/quebras; apóstrofo trata fórmulas de planilhas.
+  if (/^[\s\u0000-\u001f]*[=+@-]/u.test(text) || /^[\t\r\n]/.test(text)) text = "'" + text;
+  return '"' + text.replace(/"/g, '""') + '"';
+}
 async function readBody(req) {
   if (!(req.headers['content-type'] || '').startsWith('application/json')) fail(415, 'Envie JSON.');
   let data = '';
@@ -163,6 +169,28 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const requests = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by WHERE r.org_id=? ${user.role === 'admin' ? '' : 'AND r.user_id=?'} ORDER BY r.id DESC`).all(...(user.role === 'admin' ? [user.org_id] : [user.org_id, user.id]));
         const history = user.role === 'admin' ? db.prepare('SELECT a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id WHERE a.org_id=? ORDER BY a.id DESC LIMIT 50').all(user.org_id) : [];
         return json(200, { user: safeUser(user), organization, sectors, users, requests, history });
+      }
+      if (req.method === 'GET' && path === '/api/requests/export.csv') {
+        const status = url.searchParams.get('status') || '';
+        const query = (url.searchParams.get('q') || '').trim().toLocaleLowerCase('pt-BR');
+        if (status && !['pendente', 'aprovada', 'recusada'].includes(status)) fail(400, 'Situação inválida.');
+        if (query.length > 200) fail(400, 'A busca deve ter até 200 caracteres.');
+        const params = [user.org_id];
+        let conditions = 'r.org_id=?';
+        if (user.role !== 'admin') { conditions += ' AND r.user_id=?'; params.push(user.id); }
+        if (status) { conditions += ' AND r.status=?'; params.push(status); }
+        const rows = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by WHERE ${conditions} ORDER BY r.id DESC`).all(...params)
+          .filter(r => `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(query));
+        const labels = { pendente: 'Pendente', aprovada: 'Aprovada', recusada: 'Recusada', normal: 'Normal', alta: 'Alta', urgente: 'Urgente' };
+        const header = ['Protocolo', 'Título', 'Solicitante', 'Setor', 'Situação', 'Prioridade', 'Descrição', 'Criada em (UTC)', 'Decidida em (UTC)', 'Responsável pela decisão', 'Parecer'];
+        const csv = [header, ...rows.map(r => [`COS-${String(r.id).padStart(5, '0')}`, r.title, r.author, r.sector, labels[r.status], labels[r.priority], r.description, r.created_at, r.decided_at, r.reviewer, r.decision])]
+          .map(row => row.map(csvCell).join(';')).join('\r\n') + '\r\n';
+        res.writeHead(200, {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': 'attachment; filename="cosmos-solicitacoes.csv"',
+          'Cache-Control': 'no-store',
+        });
+        return res.end('\uFEFF' + csv);
       }
       if (req.method === 'POST' && path === '/api/sectors') {
         admin(user); const body = await readBody(req); const name = field(body, 'name', 120);

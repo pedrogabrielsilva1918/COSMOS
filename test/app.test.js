@@ -236,3 +236,64 @@ test('comentários respeitam visibilidade, limites, paginação e persistência'
   assert.ok(workspace.history.some(event => event.action.includes('Comentário adicionado')));
   assert.equal(JSON.stringify(workspace).includes(original), false);
 });
+
+test('CSV respeita filtros e acessos, preserva caracteres e neutraliza fórmulas', async t => {
+  const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  async function call(path, body, cookie = '') {
+    const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  }
+  async function exportCSV(query, cookie) {
+    const response = await fetch(base + '/api/requests/export.csv' + query, { headers: { cookie } });
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const text = new TextDecoder().decode(bytes);
+    // Todos os campos do contrato CSV são entre aspas; inclui quebras dentro de campos.
+    const cells = [...text.matchAll(/"((?:[^"]|"")*)"(?:;|\r\n|$)/g)].map(match => match[1].replace(/""/g, '"'));
+    const rows = []; for (let i = 0; i < cells.length; i += 11) rows.push(cells.slice(i, i + 11));
+    return { response, bytes, text, rows };
+  }
+  const password = 'Senha-de-teste-2026';
+  const a = await call('/api/register', { name: 'Admin', organization: 'Empresa', type: 'privada', email: 'a@empresa.com', password });
+  const b = await call('/api/register', { name: 'Outro', organization: 'Outra', type: 'publica', email: 'b@empresa.com', password });
+  const sector = (await call('/api/workspace', undefined, a.cookie)).data.sectors[0].id;
+  const otherSector = (await call('/api/workspace', undefined, b.cookie)).data.sectors[0].id;
+  for (const [name, email] of [['@Carlos', 'c@empresa.com'], ['Dani', 'd@empresa.com']]) await call('/api/users', { name, email, password, role: 'colaborador', sector_id: sector }, a.cookie);
+  const c = await call('/api/login', { email: 'c@empresa.com', password });
+  const d = await call('/api/login', { email: 'd@empresa.com', password });
+  const request = await call('/api/requests', { title: 'Água; "cotação"', description: '=1+1\nTexto; "entre aspas"', priority: 'alta', sector_id: sector }, c.cookie);
+  const id = request.data.id;
+  await call(`/api/requests/${id}/comments`, { content: 'SEGREDO-COMENTARIO' }, c.cookie);
+  await call(`/api/requests/${id}/decision`, { status: 'aprovada', decision: '-teste; "parecer"' }, a.cookie);
+  await call('/api/requests', { title: 'Pedido pendente', description: 'Da Dani', priority: 'normal', sector_id: sector }, d.cookie);
+  await call('/api/requests', { title: '=1+1', description: 'Pedido do admin', priority: 'normal', sector_id: sector }, a.cookie);
+  await call('/api/requests', { title: 'PEDIDO-OUTRA-ORGANIZACAO', description: 'Não exportar para A', priority: 'normal', sector_id: otherSector }, b.cookie);
+  assert.equal((await call('/api/requests/export.csv')).status, 401);
+  assert.equal((await call('/api/requests/export.csv?status=invalida', undefined, a.cookie)).status, 400);
+  assert.equal((await call('/api/requests/export.csv?q=' + 'x'.repeat(201), undefined, a.cookie)).status, 400);
+  const all = await exportCSV('', a.cookie);
+  assert.equal(all.response.status, 200); assert.deepEqual([...all.bytes.slice(0, 3)], [239, 187, 191]);
+  assert.equal(all.response.headers.get('content-type'), 'text/csv; charset=utf-8');
+  assert.match(all.response.headers.get('content-disposition'), /attachment; filename="cosmos-solicitacoes.csv"/);
+  assert.equal(all.response.headers.get('cache-control'), 'no-store');
+  assert.equal(all.rows.length, 4); assert.equal(all.rows[0][0], 'Protocolo');
+  assert.equal(all.rows[1][1], "'=1+1");
+  assert.equal(all.text.includes('PEDIDO-OUTRA-ORGANIZACAO'), false);
+  assert.equal(all.text.includes('SEGREDO-COMENTARIO'), false);
+  assert.equal(all.text.includes('c@empresa.com'), false);
+  const own = await exportCSV('', c.cookie); assert.equal(own.rows.length, 2);
+  const row = own.rows[1];
+  assert.equal(row[0], `COS-${String(id).padStart(5, '0')}`); assert.equal(row[1], 'Água; "cotação"');
+  assert.equal(row[2], "'@Carlos"); assert.equal(row[4], 'Aprovada'); assert.equal(row[5], 'Alta');
+  assert.equal(row[6], "'=1+1\nTexto; \"entre aspas\""); assert.ok(row[7].endsWith('Z')); assert.ok(row[8].endsWith('Z'));
+  assert.equal(row[9], 'Admin'); assert.equal(row[10], "'-teste; \"parecer\"");
+  const filtered = await exportCSV('?status=aprovada&q=' + encodeURIComponent('ÁGUA'), a.cookie);
+  assert.deepEqual(filtered.rows, own.rows);
+  const protocol = await exportCSV('?q=COS-' + String(id).padStart(5, '0'), a.cookie); assert.deepEqual(protocol.rows, own.rows);
+  assert.equal((await exportCSV('?status=pendente', c.cookie)).rows.length, 1);
+  assert.equal((await exportCSV('?q=inexistente', a.cookie)).rows.length, 1);
+  assert.equal((await exportCSV('', b.cookie)).rows.length, 2);
+  await call(`/api/users/${c.data.id}`, { name: '@Carlos', role: 'colaborador', active: false, sector_id: sector }, a.cookie);
+  assert.equal((await call('/api/requests/export.csv', undefined, c.cookie)).status, 401);
+});
