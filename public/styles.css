@@ -43,3 +43,5 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:28px;width:580px;
 @media(max-width:760px){.deadline-alert{padding:15px;margin-top:-8px}.deadline-alert strong{font-size:12px}.deadline-alert small{font-size:10px}.request-table td[data-label=Prazo]{grid-column:1 / -1}}
 
 .sector-card{display:flex;flex-direction:column}.sector-card .sector-description{flex:1;font-size:13px;line-height:1.8;color:#667580;margin:0 0 14px;white-space:pre-line;overflow-wrap:anywhere}.sector-card .sector-meta{font-size:11px}.sector-card .sector-edit{align-self:flex-start;margin-top:10px}
+
+.request-assignee-line{display:block;font-size:10px;color:#78868d;margin-top:7px;white-space:normal;max-width:340px;overflow-wrap:anywhere}.request-assignee{font-size:inherit}.request-assignee small{display:block;color:#a34c32;font-size:10px;font-weight:600;margin-top:3px}.request-management-actions{display:flex;flex-wrap:wrap;gap:9px;margin:15px 0}.request-management-actions .secondary{font-size:12px;padding:11px 14px}

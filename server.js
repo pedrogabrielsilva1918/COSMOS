@@ -101,6 +101,9 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       }
     });
   }
+  if (!db.prepare('PRAGMA table_info(requests)').all().some(column => column.name === 'assigned_to')) {
+    db.exec('ALTER TABLE requests ADD COLUMN assigned_to INTEGER REFERENCES users(id)');
+  }
   const rate = new Map();
   const janitor = setInterval(() => {
     const now = Date.now();
@@ -203,7 +206,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const organization = db.prepare('SELECT * FROM organizations WHERE id=?').get(user.org_id);
         const sectors = db.prepare('SELECT id,name,active,description FROM sectors WHERE org_id=? ORDER BY name').all(user.org_id);
         const users = user.role === 'admin' ? db.prepare('SELECT u.id,u.name,u.email,u.role,u.active,u.sector_id,s.name AS sector FROM users u LEFT JOIN sectors s ON s.id=u.sector_id WHERE u.org_id=? ORDER BY u.name').all(user.org_id) : [];
-        const requests = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by WHERE r.org_id=? ${user.role === 'admin' ? '' : 'AND r.user_id=?'} ORDER BY r.id DESC`).all(...(user.role === 'admin' ? [user.org_id] : [user.org_id, user.id]));
+        const requests = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer,a.name AS assignee_name,CASE WHEN a.active=1 AND a.role='admin' THEN 1 ELSE 0 END AS assignee_available FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by LEFT JOIN users a ON a.id=r.assigned_to AND a.org_id=r.org_id WHERE r.org_id=? ${user.role === 'admin' ? '' : 'AND r.user_id=?'} ORDER BY r.id DESC`).all(...(user.role === 'admin' ? [user.org_id] : [user.org_id, user.id]));
         const history = user.role === 'admin' ? db.prepare('SELECT a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id WHERE a.org_id=? ORDER BY a.id DESC LIMIT 50').all(user.org_id) : [];
         const today = brazilDay();
         return json(200, { user: safeUser(user), organization, sectors, users, requests: requests.map(request => ({ ...request, is_overdue: isRequestOverdue(request, today) })), history });
@@ -220,11 +223,11 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         let conditions = 'r.org_id=?';
         if (user.role !== 'admin') { conditions += ' AND r.user_id=?'; params.push(user.id); }
         if (status) { conditions += ' AND r.status=?'; params.push(status); }
-        const rows = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by WHERE ${conditions} ORDER BY r.id DESC`).all(...params)
+        const rows = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer,a.name AS assignee_name,CASE WHEN a.active=1 AND a.role='admin' THEN 1 ELSE 0 END AS assignee_available FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by LEFT JOIN users a ON a.id=r.assigned_to AND a.org_id=r.org_id WHERE ${conditions} ORDER BY r.id DESC`).all(...params)
           .filter(r => `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(query) && (!deadline || isRequestOverdue(r, today)));
         const labels = { pendente: 'Pendente', aprovada: 'Aprovada', recusada: 'Recusada', normal: 'Normal', alta: 'Alta', urgente: 'Urgente' };
-        const header = ['Protocolo', 'Título', 'Solicitante', 'Setor', 'Situação', 'Prioridade', 'Descrição', 'Criada em (UTC)', 'Decidida em (UTC)', 'Responsável pela decisão', 'Parecer', 'Prazo (AAAA-MM-DD)'];
-        const csv = [header, ...rows.map(r => [`COS-${String(r.id).padStart(5, '0')}`, r.title, r.author, r.sector, labels[r.status], labels[r.priority], r.description, r.created_at, r.decided_at, r.reviewer, r.decision, r.due_date])]
+        const header = ['Protocolo', 'Título', 'Solicitante', 'Setor', 'Situação', 'Prioridade', 'Descrição', 'Criada em (UTC)', 'Decidida em (UTC)', 'Responsável pela decisão', 'Parecer', 'Prazo (AAAA-MM-DD)', 'Responsável pela análise'];
+        const csv = [header, ...rows.map(r => [`COS-${String(r.id).padStart(5, '0')}`, r.title, r.author, r.sector, labels[r.status], labels[r.priority], r.description, r.created_at, r.decided_at, r.reviewer, r.decision, r.due_date, r.assignee_name])]
           .map(row => row.map(csvCell).join(';')).join('\r\n') + '\r\n';
         res.writeHead(200, {
           'Content-Type': 'text/csv; charset=utf-8',
@@ -314,6 +317,29 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         if (!['normal', 'alta', 'urgente'].includes(body.priority)) fail(400, 'Prioridade inválida.');
         const id = transaction(() => { const id = Number(db.prepare('INSERT INTO requests(org_id,user_id,sector_id,title,description,priority) VALUES (?,?,?,?,?,?)').run(user.org_id, user.id, sec, title, description, body.priority).lastInsertRowid); audit(user, `Solicitação #${id} criada: ${title}`); return id; });
         return json(201, { id });
+      }
+      const assigneeMatch = /^\/api\/requests\/(\d+)\/assignee$/.exec(path);
+      if (req.method === 'POST' && assigneeMatch) {
+        admin(user); const body = await readBody(req); const assignedTo = body.assigned_to;
+        const requestId = Number(assigneeMatch[1]);
+        if (!Number.isSafeInteger(requestId) || requestId <= 0) fail(400, 'Solicitação inválida.');
+        if (assignedTo !== null && (!Number.isSafeInteger(assignedTo) || assignedTo <= 0)) fail(400, 'Escolha um responsável válido ou null para remover.');
+        transaction(() => {
+          admin(user);
+          const request = db.prepare('SELECT id,user_id,status,assigned_to FROM requests WHERE id=? AND org_id=?').get(requestId, user.org_id);
+          if (!request) fail(404, 'Solicitação não encontrada.');
+          if (request.status !== 'pendente') fail(409, 'Somente solicitações pendentes podem ter o responsável alterado.');
+          let target = null;
+          if (assignedTo !== null) {
+            target = db.prepare("SELECT id,name FROM users WHERE id=? AND org_id=? AND active=1 AND role='admin'").get(assignedTo, user.org_id);
+            if (!target) fail(400, 'Selecione um administrador ativo da organização.');
+            if (target.id === request.user_id) fail(400, 'O solicitante não pode ser responsável pela análise do próprio pedido.');
+          }
+          if (request.assigned_to !== assignedTo) {
+            db.prepare('UPDATE requests SET assigned_to=? WHERE id=? AND org_id=?').run(assignedTo, request.id, user.org_id);
+            audit(user, `Responsável pela análise da solicitação #${request.id}: ${request.assigned_to ? '#' + request.assigned_to : 'não definido'} → ${target ? target.name + ' (#' + target.id + ')' : 'não definido'}`);
+          }
+        }); return json(200, { ok: true });
       }
       const deadlineMatch = /^\/api\/requests\/(\d+)\/deadline$/.exec(path);
       if (req.method === 'POST' && deadlineMatch) {
