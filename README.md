@@ -117,9 +117,17 @@ O servidor cria automaticamente a tabela de comentários ao iniciar, sem alterar
 
 Os setores Jurídico, Compras e Licitações e Patrimônio e Almoxarifado já cadastrados permanecem no banco. O aviso e o botão de inclusão em lote foram retirados da interface. Para cadastrar outras áreas, use **Setores → Novo setor**; para alterar um cadastro, use **Editar**.
 
+## Descrições dos setores
+
+Os cartões exibem uma descrição curta do que cada área faz. Administradores podem preencher ou ajustar esse texto em **Setores → Novo setor / Editar → O que este setor faz**, com até 300 caracteres. O conteúdo é mostrado como texto, inclusive para colaboradores da mesma organização.
+
+Na primeira atualização, uma migração adiciona `sectors.description` e preenche descrições iniciais para os setores conhecidos: Administração, Documentação, Financeiro, GFS, MDS, Mobiliário, Recursos Humanos (também Recursos Humano), Suporte, Tecnologia, Jurídico, Compras e Licitações e Patrimônio e Almoxarifado. São sugestões gerais, que devem ser adaptadas às atribuições da organização. Nomes com variação de caixa ou acentos são reconhecidos. Setores desconhecidos ficam sem descrição.
+
+A migração ocorre uma vez, sem substituir textos personalizados em reinicializações. Não renomeia setores nem altera pessoas, pedidos ou situação de acesso. Faça backup com o servidor parado antes de atualizar. A descrição também é aceita na API em `description` (texto opcional); ao editar sem esse campo, o valor existente é mantido.
+
 ## Gerenciar setores
 
-Como administrador, abra **Setores → Editar** para renomear, desativar ou reativar uma área. Para desativar, primeiro transfira as pessoas ativas para outro setor (ou desative seus acessos) e conclua a avaliação dos pedidos pendentes. Os pedidos concluídos e as pessoas já desativadas permanecem vinculados para consulta.
+Como administrador, abra **Setores → Editar** para renomear, descrever, desativar ou reativar uma área. Para desativar, primeiro transfira as pessoas ativas para outro setor (ou desative seus acessos) e conclua a avaliação dos pedidos pendentes. Os pedidos concluídos e as pessoas já desativadas permanecem vinculados para consulta.
 
 Setores desativados não aparecem nas opções de novos pedidos ou pessoas. Ao reativar uma pessoa cujo setor foi desativado, escolha um setor ativo. Renomear mantém os vínculos e exibe o nome atual nos pedidos e nas exportações; o nome anterior fica registrado na ação do histórico. Não há exclusão física de setores.
 

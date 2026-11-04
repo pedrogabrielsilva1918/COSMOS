@@ -504,3 +504,59 @@ test('falha no lote de setores não deixa cadastros nem registros parciais', asy
   assert.equal(inspection.prepare("SELECT COUNT(*) AS total FROM audit WHERE action LIKE 'Setor criado:%'").get().total, 0);
   inspection.close();
 });
+
+test('descrições: migração dos setores, edição autorizada e preservação dos textos', async t => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const dir = mkdtempSync(join(tmpdir(), 'cosmos-descriptions-')); const databasePath = join(dir, 'descriptions.sqlite');
+  let app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  let base = `http://127.0.0.1:${app.address().port}`;
+  t.after(async () => { if (app.listening) await new Promise(resolve => app.close(resolve)); rmSync(dir, { recursive: true, force: true }); });
+  async function call(path, body, cookie = '') {
+    const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  }
+  const password = 'Senha-de-teste-2026';
+  const a = await call('/api/register', { name: 'Admin', organization: 'Empresa', type: 'privada', email: 'a@empresa.com', password });
+  const b = await call('/api/register', { name: 'Outro', organization: 'Outra', type: 'publica', email: 'b@empresa.com', password });
+  const names = ['Documentação','Financeiro','Gestão Financeira e Serviços - GFS','Marketing e Desenvolvimento de Soluções - MDS','Mobiliário','Recursos Humano','Suporte','Tecnologia','Jurídico','Compras e Licitações','Patrimônio e Almoxarifado'];
+  for (const name of names) assert.equal((await call('/api/sectors', { name }, a.cookie)).status, 201);
+  await call('/api/sectors', { name: 'Pesquisa' }, a.cookie);
+  const firstWorkspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  const adminSector = firstWorkspace.sectors.find(s => s.name === 'Administração');
+  await call('/api/users', { name: 'Carlos', email: 'c@empresa.com', password, role: 'colaborador', sector_id: adminSector.id }, a.cookie);
+  const c = await call('/api/login', { email: 'c@empresa.com', password });
+  const request = await call('/api/requests', { title: 'Pedido preservado', description: 'Justificativa', priority: 'normal', sector_id: adminSector.id }, c.cookie);
+  // Simula banco anterior a descrições, incluindo os 12 setores da organização.
+  await new Promise(resolve => app.close(resolve));
+  const legacy = new DatabaseSync(databasePath); legacy.exec('ALTER TABLE sectors DROP COLUMN description'); legacy.close();
+  app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening'); base = `http://127.0.0.1:${app.address().port}`;
+  let workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  assert.equal(workspace.sectors.length, 13); assert.equal(workspace.users.length, 2);
+  assert.equal(workspace.requests.find(r => r.id === request.data.id).title, 'Pedido preservado');
+  for (const name of ['Administração', ...names]) {
+    const sector = workspace.sectors.find(s => s.name === name); assert.ok(sector.description.length > 30); assert.ok(sector.description.length <= 300); assert.equal(sector.active, 1);
+  }
+  assert.equal(workspace.sectors.find(s => s.name === 'Pesquisa').description, '');
+  const doc = workspace.sectors.find(s => s.name === 'Documentação');
+  const path = `/api/sectors/${doc.id}`;
+  const edit = { name: doc.name, active: true, description: 'Descrição específica da organização.' };
+  assert.equal((await call(path, edit)).status, 401);
+  assert.equal((await call(path, edit, c.cookie)).status, 403);
+  assert.equal((await call(path, edit, b.cookie)).status, 404);
+  assert.equal((await call(path, { ...edit, description: 'x'.repeat(301) }, a.cookie)).status, 400);
+  assert.equal((await call(path, { ...edit, description: null }, a.cookie)).status, 400);
+  assert.equal((await call(path, edit, a.cookie)).status, 200);
+  assert.equal((await call(path, { name: doc.name, active: true }, a.cookie)).status, 200);
+  assert.equal((await call('/api/workspace', undefined, c.cookie)).data.sectors.find(s => s.id === doc.id).description, edit.description);
+  assert.equal((await call('/api/sectors', { name: 'Novo setor', description: '<b>Texto literal</b>' }, a.cookie)).status, 201);
+  assert.equal((await call('/api/sectors', { name: 'Inválido', description: 'x'.repeat(301) }, a.cookie)).status, 400);
+  const juridico = workspace.sectors.find(s => s.name === 'Jurídico');
+  assert.equal((await call(`/api/sectors/${juridico.id}`, { name: juridico.name, active: true, description: '' }, a.cookie)).status, 200);
+  await new Promise(resolve => app.close(resolve));
+  app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening'); base = `http://127.0.0.1:${app.address().port}`;
+  workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  assert.equal(workspace.sectors.find(s => s.id === doc.id).description, edit.description);
+  assert.equal(workspace.sectors.find(s => s.id === juridico.id).description, '');
+  assert.equal(workspace.sectors.find(s => s.name === 'Novo setor').description, '<b>Texto literal</b>');
+  assert.ok(workspace.history.some(h => h.action.includes('descrição atualizada')));
+});
