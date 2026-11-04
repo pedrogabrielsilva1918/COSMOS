@@ -170,7 +170,7 @@ test('migração adiciona acesso ativo a banco antigo sem perder cadastros nem s
   assert.equal(registered.status, 201); const cookie = registered.headers.get('set-cookie').split(';')[0]; await registered.json();
   await new Promise(resolve => app.close(resolve));
   // Simula exatamente a tabela de usuários da versão anterior.
-  const legacy = new DatabaseSync(databasePath); legacy.exec('ALTER TABLE users DROP COLUMN active; ALTER TABLE sectors DROP COLUMN active; ALTER TABLE requests DROP COLUMN due_date'); legacy.close();
+  const legacy = new DatabaseSync(databasePath); legacy.exec('ALTER TABLE users DROP COLUMN active; ALTER TABLE sectors DROP COLUMN active; ALTER TABLE requests DROP COLUMN due_date; ALTER TABLE requests DROP COLUMN assigned_to'); legacy.close();
   app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   let response = await fetch(`http://127.0.0.1:${app.address().port}/api/workspace`, { headers: { cookie } });
   assert.equal(response.status, 200); const data = await response.json();
@@ -251,7 +251,7 @@ test('CSV respeita filtros e acessos, preserva caracteres e neutraliza fórmulas
     const text = new TextDecoder().decode(bytes);
     // Todos os campos do contrato CSV são entre aspas; inclui quebras dentro de campos.
     const cells = [...text.matchAll(/"((?:[^"]|"")*)"(?:;|\r\n|$)/g)].map(match => match[1].replace(/""/g, '"'));
-    const rows = []; for (let i = 0; i < cells.length; i += 12) rows.push(cells.slice(i, i + 12));
+    const rows = []; for (let i = 0; i < cells.length; i += 13) rows.push(cells.slice(i, i + 13));
     return { response, bytes, text, rows };
   }
   const password = 'Senha-de-teste-2026';
@@ -404,7 +404,7 @@ test('prazos: migração, permissões, datas válidas, filtro CSV e persistênci
   }
   // Banco de uma versão anterior, já com pedidos e contas.
   await new Promise(resolve => app.close(resolve));
-  const old = new DatabaseSync(databasePath); old.exec('ALTER TABLE requests DROP COLUMN due_date'); old.close();
+  const old = new DatabaseSync(databasePath); old.exec('ALTER TABLE requests DROP COLUMN due_date; ALTER TABLE requests DROP COLUMN assigned_to'); old.close();
   app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening'); base = `http://127.0.0.1:${app.address().port}`;
   let workspace = (await call('/api/workspace', undefined, c.cookie)).data;
   assert.equal(workspace.requests.length, 3); assert.ok(workspace.requests.every(r => r.due_date === null && r.is_overdue === false));
@@ -559,4 +559,81 @@ test('descrições: migração dos setores, edição autorizada e preservação 
   assert.equal(workspace.sectors.find(s => s.id === juridico.id).description, '');
   assert.equal(workspace.sectors.find(s => s.name === 'Novo setor').description, '<b>Texto literal</b>');
   assert.ok(workspace.history.some(h => h.action.includes('descrição atualizada')));
+});
+
+test('responsáveis: migração, isolamento, elegibilidade, transferência e decisões preservadas', async t => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const dir = mkdtempSync(join(tmpdir(), 'cosmos-assignees-')); const databasePath = join(dir, 'assignees.sqlite');
+  let app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  let base = `http://127.0.0.1:${app.address().port}`;
+  t.after(async () => { if (app.listening) await new Promise(resolve => app.close(resolve)); rmSync(dir, { recursive: true, force: true }); });
+  async function call(path, body, cookie = '') {
+    const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  }
+  const password = 'Senha-de-teste-2026';
+  const a = await call('/api/register', { name: 'Admin', organization: 'Empresa', type: 'privada', email: 'a@empresa.com', password });
+  const b = await call('/api/register', { name: 'Outro', organization: 'Outra', type: 'publica', email: 'b@empresa.com', password });
+  let workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  const sector = workspace.sectors[0].id;
+  for (const [name, email, role] of [['Carlos','c@empresa.com','colaborador'],['=Analista de teste','d@empresa.com','admin'],['Eva','e@empresa.com','admin'],['Inativo','i@empresa.com','admin']]) {
+    assert.equal((await call('/api/users', { name, email, role, sector_id: sector, password }, a.cookie)).status, 201);
+  }
+  workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  const d = workspace.users.find(u => u.email === 'd@empresa.com'); const e = workspace.users.find(u => u.email === 'e@empresa.com'); const inactive = workspace.users.find(u => u.email === 'i@empresa.com');
+  await call(`/api/users/${inactive.id}`, { name: inactive.name, role: 'admin', sector_id: sector, active: false }, a.cookie);
+  const c = await call('/api/login', { email: 'c@empresa.com', password });
+  const request = await call('/api/requests', { title: 'Pedido para análise', description: 'Justificativa', priority: 'alta', sector_id: sector }, c.cookie);
+  const own = await call('/api/requests', { title: 'Pedido próprio do admin', description: 'Justificativa', priority: 'normal', sector_id: sector }, a.cookie);
+  const path = `/api/requests/${request.data.id}/assignee`;
+  // Um banco anterior é atualizado sem perder os pedidos e sem atribuição automática.
+  await new Promise(resolve => app.close(resolve));
+  const legacy = new DatabaseSync(databasePath); legacy.exec('ALTER TABLE requests DROP COLUMN assigned_to'); legacy.close();
+  app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening'); base = `http://127.0.0.1:${app.address().port}`;
+  assert.ok((await call('/api/workspace', undefined, a.cookie)).data.requests.every(r => r.assigned_to === null));
+  assert.equal((await call(path, { assigned_to: d.id })).status, 401);
+  assert.equal((await call(path, { assigned_to: d.id }, c.cookie)).status, 403);
+  assert.equal((await call(path, { assigned_to: d.id }, b.cookie)).status, 404);
+  for (const assigned_to of [undefined, '1', 0, -1, 999999, b.data.id, c.data.id, inactive.id]) {
+    assert.equal((await call(path, { assigned_to }, a.cookie)).status, 400);
+  }
+  assert.equal((await call('/api/requests/999999/assignee', { assigned_to: d.id }, a.cookie)).status, 404);
+  assert.equal((await call(path, { assigned_to: d.id }, a.cookie)).status, 200);
+  const countEvents = async () => (await call('/api/workspace', undefined, a.cookie)).data.history.filter(h => h.action.startsWith('Responsável pela análise')).length;
+  const before = await countEvents();
+  assert.equal((await call(path, { assigned_to: d.id }, a.cookie)).status, 200); assert.equal(await countEvents(), before);
+  let visible = (await call('/api/workspace', undefined, c.cookie)).data;
+  let assigned = visible.requests.find(r => r.id === request.data.id);
+  assert.equal(assigned.assignee_name, d.name); assert.equal(assigned.assignee_available, 1); assert.equal(assigned.status, 'pendente');
+  assert.equal(visible.users.length, 0);
+  assert.equal((await call(path, { assigned_to: e.id }, a.cookie)).status, 200);
+  assert.equal((await call(path, { assigned_to: null }, a.cookie)).status, 200);
+  assert.equal((await call('/api/workspace', undefined, c.cookie)).data.requests.find(r => r.id === request.data.id).assigned_to, null);
+  await call(path, { assigned_to: d.id }, a.cookie);
+  const csvResponse = await fetch(base + '/api/requests/export.csv', { headers: { cookie: c.cookie } }); const csv = await csvResponse.text();
+  assert.ok(csv.includes('Responsável pela análise')); assert.ok(csv.includes("'=Analista de teste"));
+  await call(`/api/users/${d.id}`, { name: d.name, role: 'admin', sector_id: sector, active: false }, a.cookie);
+  assigned = (await call('/api/workspace', undefined, c.cookie)).data.requests.find(r => r.id === request.data.id);
+  assert.equal(assigned.assigned_to, d.id); assert.equal(assigned.assignee_available, 0);
+  assert.equal((await call(path, { assigned_to: d.id }, a.cookie)).status, 400);
+  await call(`/api/users/${d.id}`, { name: d.name, role: 'colaborador', sector_id: sector, active: true }, a.cookie);
+  assert.equal((await call('/api/workspace', undefined, c.cookie)).data.requests.find(r => r.id === request.data.id).assignee_available, 0);
+  assert.equal((await call(path, { assigned_to: d.id }, a.cookie)).status, 400);
+  await call(`/api/users/${d.id}`, { name: d.name, role: 'admin', sector_id: sector, active: true }, a.cookie);
+  await call(path, { assigned_to: e.id }, a.cookie);
+  // A atribuição não impede outro administrador de decidir nem permite autoaprovação.
+  assert.equal((await call(`/api/requests/${request.data.id}/decision`, { status: 'aprovada', decision: 'Autorizado' }, a.cookie)).status, 200);
+  assert.equal((await call(path, { assigned_to: null }, a.cookie)).status, 409);
+  assert.equal((await call(`/api/requests/${own.data.id}/assignee`, { assigned_to: a.data.id }, a.cookie)).status, 400);
+  assert.equal((await call(`/api/requests/${own.data.id}/assignee`, { assigned_to: d.id }, a.cookie)).status, 200);
+  assert.equal((await call(`/api/requests/${own.data.id}/decision`, { status: 'aprovada', decision: 'Autorizo' }, a.cookie)).status, 403);
+  const loggedD = await call('/api/login', { email: 'd@empresa.com', password });
+  assert.equal((await call(`/api/requests/${own.data.id}/decision`, { status: 'aprovada', decision: 'Analisado pelo responsável' }, loggedD.cookie)).status, 200);
+  await new Promise(resolve => app.close(resolve));
+  app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening'); base = `http://127.0.0.1:${app.address().port}`;
+  workspace = (await call('/api/workspace', undefined, a.cookie)).data;
+  assigned = workspace.requests.find(r => r.id === request.data.id);
+  assert.equal(assigned.assigned_to, e.id); assert.equal(assigned.assignee_name, 'Eva'); assert.equal(assigned.status, 'aprovada');
+  assert.ok(workspace.history.some(h => h.action.startsWith('Responsável pela análise')));
+  assert.equal((await call('/api/workspace', undefined, b.cookie)).data.requests.length, 0);
 });

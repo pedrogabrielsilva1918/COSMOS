@@ -87,6 +87,16 @@ As opções `--port` e `--host` têm prioridade sobre `PORT` e `HOST`; sem opç�
 
 Há um `.env.example` como referência. Variáveis podem ser definidas no ambiente ou copiadas para `.env` e carregadas com `node --env-file=.env server.js`. O arquivo `.env` não é carregado automaticamente por `npm start` e não deve ser enviado ao Git.
 
+## Responsável pela análise
+
+Como administrador, abra um pedido pendente e clique em **Definir responsável**. Escolha um administrador ativo da mesma organização, exceto o solicitante. Selecione **Sem responsável** para remover. Atribuição, troca e remoção ficam registradas no histórico. Pedidos aprovados ou recusados mantêm o vínculo para consulta e não aceitam sua alteração.
+
+O nome aparece na lista, no detalhe e na última coluna do CSV. A atribuição indica quem acompanha a análise; as permissões de consulta e decisão continuam as mesmas. Nenhum administrador pode aprovar o próprio pedido. Colaboradores não podem alterar responsáveis e continuam consultando apenas seus pedidos.
+
+Se o responsável for desativado ou perder o perfil de administrador, o pedido pendente mostra **Reatribuição necessária**. O vínculo fica preservado até um administrador escolher outro responsável ou removê-lo. O nome exibido acompanha o cadastro atual. Não há envio de notificações nesta etapa.
+
+A atualização adiciona `requests.assigned_to` com chave estrangeira, sem apagar dados; os pedidos antigos começam sem responsável. Faça backup com servidor parado antes de atualizar. O CSV passa a ter 13 colunas, com as 12 anteriores na mesma ordem.
+
 ## Prazos das solicitações
 
 Administradores podem abrir um pedido pendente e usar **Definir ou alterar prazo**. Escolha a data limite ou deixe o campo vazio para remover. Somente administradores da mesma organização podem alterar o prazo, e pedidos já aprovados ou recusados não aceitam essa alteração.
@@ -185,6 +195,7 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | GET | `/api/requests/export.csv?q=busca&status=pendente&deadline=overdue` | Autenticado; mesmas permissões da lista; filtros opcionais |
 | GET | `/api/requests/:id/comments?before=ID` | Autor ou administrador da mesma organização; páginas de até 50 mensagens |
 | POST | `/api/requests/:id/comments` | Autor ou administrador da mesma organização; JSON com `content` |
+| POST | `/api/requests/:id/assignee` | Administrador; JSON com `assigned_to` (ID numérico ou null); apenas pendentes da mesma organização |
 | POST | `/api/requests/:id/deadline` | Administrador da mesma organização; JSON com `due_date` (AAAA-MM-DD ou null); apenas pendentes |
 | POST | `/api/requests/:id/decision` | Administrador da mesma organização, exceto autor |
 
