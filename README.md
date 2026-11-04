@@ -19,6 +19,7 @@ No celular, os pedidos aparecem em cartões para consultar os detalhes sem rolag
 - Edição do nome, setor e perfil; desativação e reativação de pessoas.
 - Bloqueio de login e encerramento de sessões ao desativar o acesso; novo login obrigatório ao alterar o perfil.
 - Solicitações com protocolo, setor responsável, justificativa e prioridade.
+- Prazos definidos pelo administrador, destaque de pendentes vencidas e filtro por atraso.
 - Aprovação ou recusa com parecer obrigatório e identificação de quem decidiu.
 - Comentários por solicitação, com autor, data e carregamento de mensagens anteriores.
 - Um administrador não pode avaliar a própria solicitação. Cadastre outro administrador para isso.
@@ -86,11 +87,21 @@ As opções `--port` e `--host` têm prioridade sobre `PORT` e `HOST`; sem opç�
 
 Há um `.env.example` como referência. Variáveis podem ser definidas no ambiente ou copiadas para `.env` e carregadas com `node --env-file=.env server.js`. O arquivo `.env` não é carregado automaticamente por `npm start` e não deve ser enviado ao Git.
 
+## Prazos das solicitações
+
+Administradores podem abrir um pedido pendente e usar **Definir ou alterar prazo**. Escolha a data limite ou deixe o campo vazio para remover. Somente administradores da mesma organização podem alterar o prazo, e pedidos já aprovados ou recusados não aceitam essa alteração.
+
+O pedido fica vencido a partir do dia seguinte à data limite, pelo calendário de **America/Sao_Paulo (Brasília)**. O dia do prazo ainda está dentro do período. Datas passadas são aceitas para registrar compromissos existentes. Apenas pedidos pendentes são destacados como vencidos; a data fica preservada após a decisão.
+
+O painel mostra um aviso com atalho para os pendentes vencidos. Na lista, use **Filtrar prazo → Pendentes vencidas**. O filtro combina com a busca e a situação. O colaborador continua vendo apenas seus próprios pedidos. A classificação é atualizada ao carregar os dados; atualize a página para refletir a mudança de dia. Não há envio automático de lembretes nesta versão.
+
+A exportação CSV inclui a data limite na última coluna, no formato AAAA-MM-DD, e respeita o filtro de vencidos. A atualização adiciona `requests.due_date` ao banco sem apagar dados; pedidos anteriores começam sem prazo. Faça backup com o servidor parado antes de atualizar.
+
 ## Exportar solicitações
 
-Em **Solicitações**, ajuste a busca e a situação e clique em **Exportar CSV**. A consulta é refeita no servidor no momento da exportação: pode incluir pedidos criados desde a última atualização da tela. Administradores exportam os pedidos da própria organização; colaboradores exportam apenas seus pedidos. Se não houver resultados, o arquivo contém apenas os títulos das colunas.
+Em **Solicitações**, ajuste a busca, a situação e o prazo e clique em **Exportar CSV**. A consulta é refeita no servidor no momento da exportação: pode incluir pedidos criados desde a última atualização da tela. Administradores exportam os pedidos da própria organização; colaboradores exportam apenas seus pedidos. Se não houver resultados, o arquivo contém apenas os títulos das colunas.
 
-O CSV usa UTF-8 com BOM, separador ponto e vírgula e datas ISO em UTC. Contém protocolo, título, solicitante, setor, situação, prioridade, descrição, datas e parecer da decisão. Não inclui senhas, e-mails nem comentários. Caso o Excel não separe as colunas automaticamente, importe o arquivo escolhendo UTF-8 e `;` como delimitador.
+O CSV usa UTF-8 com BOM, separador ponto e vírgula e datas ISO em UTC. Contém protocolo, título, solicitante, setor, situação, prioridade, descrição, datas, parecer da decisão e prazo limite (data sem horário). Não inclui senhas, e-mails nem comentários. Caso o Excel não separe as colunas automaticamente, importe o arquivo escolhendo UTF-8 e `;` como delimitador.
 
 Textos que possam ser interpretados como fórmulas recebem um apóstrofo inicial na exportação. Aspas e quebras de linha são preservadas pelo formato CSV. Isso não modifica os dados originais. O arquivo baixado contém dados dos pedidos e deve ser compartilhado apenas com quem tem autorização.
 
@@ -158,9 +169,10 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/users` | Administrador |
 | POST | `/api/users/:id` | Administrador da mesma organização: edita nome, setor, perfil e acesso |
 | POST | `/api/requests` | Autenticado |
-| GET | `/api/requests/export.csv?q=busca&status=pendente` | Autenticado; mesmas permissões da lista; filtros opcionais |
+| GET | `/api/requests/export.csv?q=busca&status=pendente&deadline=overdue` | Autenticado; mesmas permissões da lista; filtros opcionais |
 | GET | `/api/requests/:id/comments?before=ID` | Autor ou administrador da mesma organização; páginas de até 50 mensagens |
 | POST | `/api/requests/:id/comments` | Autor ou administrador da mesma organização; JSON com `content` |
+| POST | `/api/requests/:id/deadline` | Administrador da mesma organização; JSON com `due_date` (AAAA-MM-DD ou null); apenas pendentes |
 | POST | `/api/requests/:id/decision` | Administrador da mesma organização, exceto autor |
 
 ## Limites desta versão

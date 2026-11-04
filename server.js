@@ -11,6 +11,21 @@ const root = dirname(fileURLToPath(import.meta.url));
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const hash = value => createHash('sha256').update(value).digest('hex');
 const safeUser = user => ({ id: user.id, name: user.name, email: user.email, role: user.role, sector_id: user.sector_id, active: user.active });
+export function brazilDay(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+  const get = type => parts.find(part => part.type === type).value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+export function isRequestOverdue(request, today = brazilDay()) {
+  return Boolean(request.status === 'pendente' && request.due_date && request.due_date < today);
+}
+function validateDeadline(value) {
+  if (value === null) return null;
+  if (typeof value !== 'string' || !/^[1-9]\d{3}-\d{2}-\d{2}$/.test(value)) fail(400, 'Informe uma data válida no formato AAAA-MM-DD ou null para remover.');
+  const date = new Date(value + 'T00:00:00.000Z');
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) fail(400, 'A data informada não existe no calendário.');
+  return value;
+}
 async function passwordHash(password) {
   const salt = randomBytes(16).toString('hex');
   return `${salt}:${Buffer.from(await scrypt(password, salt, 64)).toString('hex')}`;
@@ -68,6 +83,9 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
   }
   if (!db.prepare('PRAGMA table_info(sectors)').all().some(column => column.name === 'active')) {
     db.exec('ALTER TABLE sectors ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))');
+  }
+  if (!db.prepare('PRAGMA table_info(requests)').all().some(column => column.name === 'due_date')) {
+    db.exec('ALTER TABLE requests ADD COLUMN due_date TEXT');
   }
   const rate = new Map();
   const janitor = setInterval(() => {
@@ -173,11 +191,15 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const users = user.role === 'admin' ? db.prepare('SELECT u.id,u.name,u.email,u.role,u.active,u.sector_id,s.name AS sector FROM users u LEFT JOIN sectors s ON s.id=u.sector_id WHERE u.org_id=? ORDER BY u.name').all(user.org_id) : [];
         const requests = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by WHERE r.org_id=? ${user.role === 'admin' ? '' : 'AND r.user_id=?'} ORDER BY r.id DESC`).all(...(user.role === 'admin' ? [user.org_id] : [user.org_id, user.id]));
         const history = user.role === 'admin' ? db.prepare('SELECT a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id WHERE a.org_id=? ORDER BY a.id DESC LIMIT 50').all(user.org_id) : [];
-        return json(200, { user: safeUser(user), organization, sectors, users, requests, history });
+        const today = brazilDay();
+        return json(200, { user: safeUser(user), organization, sectors, users, requests: requests.map(request => ({ ...request, is_overdue: isRequestOverdue(request, today) })), history });
       }
       if (req.method === 'GET' && path === '/api/requests/export.csv') {
         const status = url.searchParams.get('status') || '';
         const query = (url.searchParams.get('q') || '').trim().toLocaleLowerCase('pt-BR');
+        const deadline = url.searchParams.get('deadline') || '';
+        if (deadline && deadline !== 'overdue') fail(400, 'Filtro de prazo inválido.');
+        const today = brazilDay();
         if (status && !['pendente', 'aprovada', 'recusada'].includes(status)) fail(400, 'Situação inválida.');
         if (query.length > 200) fail(400, 'A busca deve ter até 200 caracteres.');
         const params = [user.org_id];
@@ -185,10 +207,10 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         if (user.role !== 'admin') { conditions += ' AND r.user_id=?'; params.push(user.id); }
         if (status) { conditions += ' AND r.status=?'; params.push(status); }
         const rows = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by WHERE ${conditions} ORDER BY r.id DESC`).all(...params)
-          .filter(r => `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(query));
+          .filter(r => `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(query) && (!deadline || isRequestOverdue(r, today)));
         const labels = { pendente: 'Pendente', aprovada: 'Aprovada', recusada: 'Recusada', normal: 'Normal', alta: 'Alta', urgente: 'Urgente' };
-        const header = ['Protocolo', 'Título', 'Solicitante', 'Setor', 'Situação', 'Prioridade', 'Descrição', 'Criada em (UTC)', 'Decidida em (UTC)', 'Responsável pela decisão', 'Parecer'];
-        const csv = [header, ...rows.map(r => [`COS-${String(r.id).padStart(5, '0')}`, r.title, r.author, r.sector, labels[r.status], labels[r.priority], r.description, r.created_at, r.decided_at, r.reviewer, r.decision])]
+        const header = ['Protocolo', 'Título', 'Solicitante', 'Setor', 'Situação', 'Prioridade', 'Descrição', 'Criada em (UTC)', 'Decidida em (UTC)', 'Responsável pela decisão', 'Parecer', 'Prazo (AAAA-MM-DD)'];
+        const csv = [header, ...rows.map(r => [`COS-${String(r.id).padStart(5, '0')}`, r.title, r.author, r.sector, labels[r.status], labels[r.priority], r.description, r.created_at, r.decided_at, r.reviewer, r.decision, r.due_date])]
           .map(row => row.map(csvCell).join(';')).join('\r\n') + '\r\n';
         res.writeHead(200, {
           'Content-Type': 'text/csv; charset=utf-8',
@@ -258,6 +280,19 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         if (!['normal', 'alta', 'urgente'].includes(body.priority)) fail(400, 'Prioridade inválida.');
         const id = transaction(() => { const id = Number(db.prepare('INSERT INTO requests(org_id,user_id,sector_id,title,description,priority) VALUES (?,?,?,?,?,?)').run(user.org_id, user.id, sec, title, description, body.priority).lastInsertRowid); audit(user, `Solicitação #${id} criada: ${title}`); return id; });
         return json(201, { id });
+      }
+      const deadlineMatch = /^\/api\/requests\/(\d+)\/deadline$/.exec(path);
+      if (req.method === 'POST' && deadlineMatch) {
+        admin(user); const body = await readBody(req); const deadline = validateDeadline(body.due_date);
+        transaction(() => {
+          const request = db.prepare('SELECT id,status,due_date FROM requests WHERE id=? AND org_id=?').get(Number(deadlineMatch[1]), user.org_id);
+          if (!request) fail(404, 'Solicitação não encontrada.');
+          if (request.status !== 'pendente') fail(409, 'Somente solicitações pendentes podem ter o prazo alterado.');
+          if (request.due_date !== deadline) {
+            db.prepare('UPDATE requests SET due_date=? WHERE id=? AND org_id=?').run(deadline, request.id, user.org_id);
+            audit(user, `Prazo da solicitação #${request.id}: ${request.due_date || 'sem prazo'} → ${deadline || 'sem prazo'}`);
+          }
+        }); return json(200, { ok: true });
       }
       const commentMatch = /^\/api\/requests\/(\d+)\/comments$/.exec(path);
       if (commentMatch) {
