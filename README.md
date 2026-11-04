@@ -8,7 +8,8 @@ Gestão administrativa para empresas privadas e organizações públicas. Primei
 - Troca da própria senha com encerramento de todas as sessões.
 - Login e logout com sessões de 8 horas, cookies HttpOnly e senhas derivadas com scrypt e salt individual.
 - Dados separados por organização no servidor.
-- Cadastro de setores e pessoas, com perfis administrador e colaborador.
+- Cadastro, edição de nome, desativação e reativação de setores.
+- Cadastro de pessoas, com perfis administrador e colaborador.
 - Edição do nome, setor e perfil; desativação e reativação de pessoas.
 - Bloqueio de login e encerramento de sessões ao desativar o acesso; novo login obrigatório ao alterar o perfil.
 - Solicitações com protocolo, setor responsável, justificativa e prioridade.
@@ -85,6 +86,14 @@ Cada mensagem aceita até 2.000 caracteres. A tela carrega as 50 mais recentes, 
 
 O servidor cria automaticamente a tabela de comentários ao iniciar, sem alterar pedidos ou contas. Comentários não são incluídos na resposta geral do workspace: são consultados por pedido, com validação de acesso no servidor.
 
+## Gerenciar setores
+
+Como administrador, abra **Setores → Editar** para renomear, desativar ou reativar uma área. Para desativar, primeiro transfira as pessoas ativas para outro setor (ou desative seus acessos) e conclua a avaliação dos pedidos pendentes. Os pedidos concluídos e as pessoas já desativadas permanecem vinculados para consulta.
+
+Setores desativados não aparecem nas opções de novos pedidos ou pessoas. Ao reativar uma pessoa cujo setor foi desativado, escolha um setor ativo. Renomear mantém os vínculos e exibe o nome atual nos pedidos e nas exportações; o nome anterior fica registrado na ação do histórico. Não há exclusão física de setores.
+
+A atualização adiciona `sectors.active` automaticamente, com os setores existentes ativos. Não apaga dados. Faça backup com o servidor parado antes de atualizar.
+
 ## Gerenciar pessoas
 
 Como administrador, abra **Pessoas → Editar** para alterar nome, setor, perfil ou situação de acesso. O e-mail permanece como identificador de login e não é editável nesta versão. Desativar preserva os pedidos e o histórico; reativar permite entrar novamente com a senha existente. Alterar o perfil também encerra as sessões da pessoa.
@@ -123,6 +132,7 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/account/password` | Troca de senha da própria conta; exige senha atual |
 | GET | `/api/workspace` | Dados visíveis ao usuário autenticado |
 | POST | `/api/sectors` | Administrador |
+| POST | `/api/sectors/:id` | Administrador da mesma organização; edita nome e situação |
 | POST | `/api/users` | Administrador |
 | POST | `/api/users/:id` | Administrador da mesma organização: edita nome, setor, perfil e acesso |
 | POST | `/api/requests` | Autenticado |
@@ -135,6 +145,6 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 
 Este MVP não é uma implantação de produção. Antes de usar dados reais de funcionários ou órgãos, configure HTTPS, persistência e backups com restauração validada, revisão de acesso e política de retenção. O cadastro de organizações está aberto; restrinja-o no ambiente institucional se necessário. A proteção de tentativas é por IP e processo, sem confiar em cabeçalhos de proxy.
 
-Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail e edição/desativação de setores, anexos, edição de solicitações, notificações ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
+Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail, anexos, edição de solicitações, notificações ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
 
 Faça backup com o servidor parado, copiando o diretório `data` completo (incluindo eventuais arquivos WAL/SHM). Guarde o backup fora do repositório e limite o acesso ao diretório do banco.
