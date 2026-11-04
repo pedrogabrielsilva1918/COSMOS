@@ -88,6 +88,20 @@ $('#shortcut-requests').onclick = () => setView('requests');
 $('#shortcut-sectors').onclick = () => setView('sectors');
 $('#shortcut-help').onclick = () => showGuide();
 $('#main-action').onclick = () => ({ sectors: sectorForm, people: userForm }[currentView] || requestForm)();
+$('#add-suggested-sectors').onclick = async () => {
+  const button = $('#add-suggested-sectors'); button.disabled = true; button.textContent = 'Adicionando…';
+  try {
+    const result = await api('/sectors/suggested', {});
+    const created = result.created.length; const existing = result.existing.length;
+    const inactive = result.existing.filter(sector => !sector.active).length;
+    const message = `${created} setor(es) adicionado(s). ${existing} já existente(s), preservado(s).${inactive ? ` ${inactive} permanece(m) desativado(s); use Editar para reativar.` : ''}`;
+    // A criação já foi confirmada: uma falha na atualização não deve sugerir reenviar.
+    notify(message);
+    try { await refresh(); } catch (error) { notify(`${message} Atualize a página para conferir a lista. ${error.message}`); }
+  } catch (error) { notify(error.message); }
+  finally { button.disabled = false; button.textContent = 'Adicionar setores sugeridos'; }
+};
+
 const pill = status => `<span class="pill ${status}">${statusName[status]}</span>`;
 function table(requests) {
   if (!requests.length) return '<div class="empty"><strong>Nenhuma solicitação por aqui.</strong>Crie uma solicitação ou ajuste os filtros para começar.</div>';

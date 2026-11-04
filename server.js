@@ -219,6 +219,23 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         });
         return res.end('\uFEFF' + csv);
       }
+      if (req.method === 'POST' && path === '/api/sectors/suggested') {
+        admin(user); await readBody(req);
+        const names = ['Jurídico', 'Compras e Licitações', 'Patrimônio e Almoxarifado'];
+        const normalize = name => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
+        const result = transaction(() => {
+          admin(user);
+          const sectors = db.prepare('SELECT id,name,active FROM sectors WHERE org_id=?').all(user.org_id);
+          const created = []; const existing = [];
+          for (const name of names) {
+            const found = sectors.find(sector => normalize(sector.name) === normalize(name));
+            if (found) { existing.push({ id: found.id, name: found.name, active: found.active }); continue; }
+            const id = Number(db.prepare('INSERT INTO sectors(org_id,name) VALUES (?,?)').run(user.org_id, name).lastInsertRowid);
+            created.push({ id, name }); audit(user, `Setor criado: ${name}`);
+          }
+          return { created, existing };
+        }); return json(result.created.length ? 201 : 200, result);
+      }
       if (req.method === 'POST' && path === '/api/sectors') {
         admin(user); const body = await readBody(req); const name = field(body, 'name', 120);
         transaction(() => { if (db.prepare('SELECT id FROM sectors WHERE org_id=? AND name=?').get(user.org_id, name)) fail(409, 'Este setor já existe.'); db.prepare('INSERT INTO sectors(org_id,name) VALUES (?,?)').run(user.org_id, name); audit(user, `Setor criado: ${name}`); });

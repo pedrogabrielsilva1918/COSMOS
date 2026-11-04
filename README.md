@@ -113,6 +113,18 @@ Cada mensagem aceita até 2.000 caracteres. A tela carrega as 50 mais recentes, 
 
 O servidor cria automaticamente a tabela de comentários ao iniciar, sem alterar pedidos ou contas. Comentários não são incluídos na resposta geral do workspace: são consultados por pedido, com validação de acesso no servidor.
 
+## Adicionar os três setores sugeridos
+
+Em **Setores**, entre como administrador e clique em **Adicionar setores sugeridos** para cadastrar de uma vez:
+
+- Jurídico
+- Compras e Licitações
+- Patrimônio e Almoxarifado
+
+O cadastro afeta somente a organização conectada. Repetir a ação não duplica esses setores: o servidor compara nomes sem distinguir maiúsculas, acentos ou espaços repetidos. Um setor equivalente que já exista é preservado, inclusive se estiver desativado; use **Editar** se quiser reativá-lo. Cada setor novo é registrado no histórico, e o lote é gravado em uma única transação.
+
+Atualizar o código não cria cadastros automaticamente no banco do Codespace: o botão executa a inclusão com a sessão do administrador. Não há mudança de estrutura do banco nem alteração de pedidos e pessoas.
+
 ## Gerenciar setores
 
 Como administrador, abra **Setores → Editar** para renomear, desativar ou reativar uma área. Para desativar, primeiro transfira as pessoas ativas para outro setor (ou desative seus acessos) e conclua a avaliação dos pedidos pendentes. Os pedidos concluídos e as pessoas já desativadas permanecem vinculados para consulta.
@@ -165,6 +177,7 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/account/password` | Troca de senha da própria conta; exige senha atual |
 | GET | `/api/workspace` | Dados visíveis ao usuário autenticado |
 | POST | `/api/sectors` | Administrador |
+| POST | `/api/sectors/suggested` | Administrador; JSON `{}`; inclui os três sugeridos sem duplicação |
 | POST | `/api/sectors/:id` | Administrador da mesma organização; edita nome e situação |
 | POST | `/api/users` | Administrador |
 | POST | `/api/users/:id` | Administrador da mesma organização: edita nome, setor, perfil e acesso |
