@@ -17,6 +17,7 @@ Gestão administrativa para empresas privadas e organizações públicas. Primei
 - Um administrador não pode avaliar a própria solicitação. Cadastre outro administrador para isso.
 - Colaboradores veem apenas seus pedidos; administradores veem todos os pedidos da organização.
 - Painel com indicadores, busca por título/protocolo e filtro por situação.
+- Exportação dos pedidos filtrados para CSV compatível com Excel.
 - Histórico das últimas 50 ações administrativas e de solicitações.
 - Layout responsivo para computador, tablet e celular.
 
@@ -68,6 +69,14 @@ Os dados ficam em `data/cosmos.sqlite`. A execução precisa de disco persistent
 
 Há um `.env.example` como referência. Variáveis podem ser definidas no ambiente ou copiadas para `.env` e carregadas com `node --env-file=.env server.js`. O arquivo `.env` não é carregado automaticamente por `npm start` e não deve ser enviado ao Git.
 
+## Exportar solicitações
+
+Em **Solicitações**, ajuste a busca e a situação e clique em **Exportar CSV**. A consulta é refeita no servidor no momento da exportação: pode incluir pedidos criados desde a última atualização da tela. Administradores exportam os pedidos da própria organização; colaboradores exportam apenas seus pedidos. Se não houver resultados, o arquivo contém apenas os títulos das colunas.
+
+O CSV usa UTF-8 com BOM, separador ponto e vírgula e datas ISO em UTC. Contém protocolo, título, solicitante, setor, situação, prioridade, descrição, datas e parecer da decisão. Não inclui senhas, e-mails nem comentários. Caso o Excel não separe as colunas automaticamente, importe o arquivo escolhendo UTF-8 e `;` como delimitador.
+
+Textos que possam ser interpretados como fórmulas recebem um apóstrofo inicial na exportação. Aspas e quebras de linha são preservadas pelo formato CSV. Isso não modifica os dados originais. O arquivo baixado contém dados dos pedidos e deve ser compartilhado apenas com quem tem autorização.
+
 ## Conversar sobre uma solicitação
 
 Abra o pedido e use **Comentários** para registrar esclarecimentos. O autor do pedido e os administradores da mesma organização podem ler e comentar, inclusive depois de uma aprovação ou recusa. Outros colaboradores não podem consultar a conversa.
@@ -117,6 +126,7 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/users` | Administrador |
 | POST | `/api/users/:id` | Administrador da mesma organização: edita nome, setor, perfil e acesso |
 | POST | `/api/requests` | Autenticado |
+| GET | `/api/requests/export.csv?q=busca&status=pendente` | Autenticado; mesmas permissões da lista; filtros opcionais |
 | GET | `/api/requests/:id/comments?before=ID` | Autor ou administrador da mesma organização; páginas de até 50 mensagens |
 | POST | `/api/requests/:id/comments` | Autor ou administrador da mesma organização; JSON com `content` |
 | POST | `/api/requests/:id/decision` | Administrador da mesma organização, exceto autor |
@@ -125,6 +135,6 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 
 Este MVP não é uma implantação de produção. Antes de usar dados reais de funcionários ou órgãos, configure HTTPS, persistência e backups com restauração validada, revisão de acesso e política de retenção. O cadastro de organizações está aberto; restrinja-o no ambiente institucional se necessário. A proteção de tentativas é por IP e processo, sem confiar em cabeçalhos de proxy.
 
-Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail e edição/desativação de setores, anexos, edição de solicitações, notificações, exportação ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
+Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail e edição/desativação de setores, anexos, edição de solicitações, notificações ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
 
 Faça backup com o servidor parado, copiando o diretório `data` completo (incluindo eventuais arquivos WAL/SHM). Guarde o backup fora do repositório e limite o acesso ao diretório do banco.

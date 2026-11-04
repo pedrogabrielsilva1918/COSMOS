@@ -88,6 +88,25 @@ function renderRequests() {
   $('#all-requests').innerHTML = table(state.requests.filter(r => (!status || r.status === status) && `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(search)));
 }
 $('#request-search').oninput = renderRequests; $('#status-filter').onchange = renderRequests;
+$('#export-requests').onclick = async () => {
+  const button = $('#export-requests'); button.disabled = true; button.textContent = 'Preparando…';
+  const params = new URLSearchParams({ q: $('#request-search').value.trim(), status: $('#status-filter').value });
+  try {
+    const response = await fetch(`/api/requests/export.csv?${params}`);
+    if (!response.ok) {
+      const data = await response.json();
+      if (response.status === 401) { state = null; $('#modal').close(); showAuth(); }
+      throw new Error(data.error || 'Não foi possível exportar.');
+    }
+    const file = await response.blob();
+    const url = URL.createObjectURL(file); const link = document.createElement('a');
+    link.href = url; link.download = 'cosmos-solicitacoes.csv'; document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    notify('Arquivo preparado para download.');
+  } catch (error) { notify(error.message); }
+  finally { button.disabled = false; button.textContent = 'Exportar CSV ↓'; }
+};
+
 async function refresh() {
   state = await api('/workspace'); $('#auth').hidden = true; $('#workspace').hidden = false;
   const admin = state.user.role === 'admin';
