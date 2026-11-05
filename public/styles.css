@@ -45,3 +45,7 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:28px;width:580px;
 .sector-card{display:flex;flex-direction:column}.sector-card .sector-description{flex:1;font-size:13px;line-height:1.8;color:#667580;margin:0 0 14px;white-space:pre-line;overflow-wrap:anywhere}.sector-card .sector-meta{font-size:11px}.sector-card .sector-edit{align-self:flex-start;margin-top:10px}
 
 .request-assignee-line{display:block;font-size:10px;color:#78868d;margin-top:7px;white-space:normal;max-width:340px;overflow-wrap:anywhere}.request-assignee{font-size:inherit}.request-assignee small{display:block;color:#a34c32;font-size:10px;font-weight:600;margin-top:3px}.request-management-actions{display:flex;flex-wrap:wrap;gap:9px;margin:15px 0}.request-management-actions .secondary{font-size:12px;padding:11px 14px}
+
+.section-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:15px}.section-actions .secondary{font-size:12px;min-height:38px;padding:9px 14px}.filters #assignment-filter{min-width:200px}.filters .search-label{min-width:160px}
+@media(min-width:981px){.filters{flex-wrap:wrap}.filters .search-label{flex:1 1 230px}.filters>label:not(.search-label){flex:1 1 160px}.filters #assignment-filter{min-width:0}}
+@media(max-width:760px){.requests-heading{flex-wrap:wrap}.section-actions{justify-content:flex-start;gap:14px}.section-actions .secondary{font-size:11px}.filters .search-label{min-width:0}.filters #assignment-filter{min-width:0}}

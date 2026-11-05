@@ -637,3 +637,50 @@ test('responsáveis: migração, isolamento, elegibilidade, transferência e dec
   assert.ok(workspace.history.some(h => h.action.startsWith('Responsável pela análise')));
   assert.equal((await call('/api/workspace', undefined, b.cookie)).data.requests.length, 0);
 });
+
+test('fila de análise: filtros CSV, combinação com prazo e restrição ao administrador', async t => {
+  const { brazilDay } = await import('../server.js');
+  const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
+  t.after(() => new Promise(resolve => app.close(resolve)));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  async function call(path, body, cookie = '') {
+    const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  }
+  const password = 'Senha-de-teste-2026';
+  const a = await call('/api/register', { name: 'Admin', organization: 'Empresa', type: 'privada', email: 'a@empresa.com', password });
+  const b = await call('/api/register', { name: 'Outro', organization: 'Outra', type: 'publica', email: 'b@empresa.com', password });
+  const sector = (await call('/api/workspace', undefined, a.cookie)).data.sectors[0].id;
+  const otherSector = (await call('/api/workspace', undefined, b.cookie)).data.sectors[0].id;
+  for (const [name,email,role] of [['Carlos','c@empresa.com','colaborador'],['Dani','d@empresa.com','admin'],['Ivo','i@empresa.com','admin']]) await call('/api/users', { name,email,role,password,sector_id:sector }, a.cookie);
+  const people = (await call('/api/workspace', undefined, a.cookie)).data.users;
+  const d = people.find(u => u.email === 'd@empresa.com'); const i = people.find(u => u.email === 'i@empresa.com');
+  const c = await call('/api/login', { email:'c@empresa.com',password }); const loggedD = await call('/api/login', {email:'d@empresa.com',password});
+  const titles = ['Meu pendente vencido','Outro responsável','Sem atribuição','Responsável indisponível','Meu aprovado','Meu pendente hoje'];
+  const ids=[];
+  for(const title of titles){ const r=await call('/api/requests',{title,description:'Teste de fila',priority:'normal',sector_id:sector},c.cookie);ids.push(r.data.id); }
+  for(const [index,assigned_to] of [[0,a.data.id],[1,d.id],[3,i.id],[4,a.data.id],[5,a.data.id]]) await call(`/api/requests/${ids[index]}/assignee`,{assigned_to},a.cookie);
+  const today=brazilDay(); const yesterday=new Date(Date.parse(today+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+  await call(`/api/requests/${ids[0]}/deadline`,{due_date:yesterday},a.cookie);
+  await call(`/api/requests/${ids[5]}/deadline`,{due_date:today},a.cookie);
+  await call(`/api/requests/${ids[4]}/decision`,{status:'aprovada',decision:'Autorizado'},a.cookie);
+  await call(`/api/users/${i.id}`,{name:i.name,role:'colaborador',active:true,sector_id:sector},a.cookie);
+  await call('/api/requests',{title:'Pedido de outra organização',description:'Isolamento',priority:'normal',sector_id:otherSector},b.cookie);
+  async function csv(query,cookie=a.cookie){const response=await fetch(base+'/api/requests/export.csv?'+query,{headers:{cookie}});assert.equal(response.status,200);return response.text();}
+  function assertTitles(text,expected){for(let j=0;j<titles.length;j++) assert.equal(text.includes('"'+titles[j]+'"'),expected.includes(j),titles[j]);assert.equal(text.includes('Pedido de outra organização'),false);}
+  assertTitles(await csv('assignment=mine'),[0,5]);
+  assertTitles(await csv('assignment=mine',loggedD.cookie),[1]);
+  assertTitles(await csv('assignment=unassigned'),[2,3]);
+  assertTitles(await csv('assignment=mine&deadline=overdue'),[0]);
+  assertTitles(await csv('assignment=mine&q=hoje'),[5]);
+  assertTitles(await csv('assignment=mine&status=aprovada'),[]);
+  assertTitles(await csv('',c.cookie),[0,1,2,3,4,5]);
+  const other=await csv('assignment=unassigned',b.cookie);assert.ok(other.includes('Pedido de outra organização'));for(const title of titles)assert.equal(other.includes('"'+title+'"'),false);
+  assert.equal((await call('/api/requests/export.csv?assignment=mine',undefined,c.cookie)).status,403);
+  assert.equal((await call('/api/requests/export.csv?assignment=unassigned',undefined,c.cookie)).status,403);
+  assert.equal((await call('/api/requests/export.csv?assignment=1',undefined,a.cookie)).status,400);
+  await call(`/api/users/${i.id}`,{name:i.name,role:'admin',active:true,sector_id:sector},a.cookie);
+  assertTitles(await csv('assignment=unassigned'),[2]);
+  const ws=(await call('/api/workspace',undefined,a.cookie)).data;
+  assert.equal(ws.requests.find(r=>r.id===ids[4]).status,'aprovada');assert.equal(ws.requests.find(r=>r.id===ids[0]).assigned_to,a.data.id);
+});
