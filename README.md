@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Pedidos por setor
+
+Na página inicial, **Pedidos por setor** resume total de pedidos, pendentes, vencidos e urgentes. Vencidos e urgentes contam somente os pendentes; aprovados e recusados participam apenas do total. Administradores veem os pedidos da sua organização; colaboradores veem somente os próprios.
+
+Aparecem apenas setores com pedidos visíveis à conta, inclusive desativados, com identificação. A ordem prioriza quantidade de pendências, depois vencidos, urgentes e nome do setor. **Ver pedidos** abre a lista com o filtro daquele setor, limpando os outros filtros e restaurando Mais recentes. O resumo usa o setor de destino do pedido e é atualizado pelo botão **Atualizar dados**. Não há mudança nas permissões ou migração do banco.
+
 ## Atualizar os dados da equipe
 
 O botão **Atualizar dados** no topo consulta novamente os dados permitidos à conta. O horário exibido indica a última atualização concluída, no horário do dispositivo; não é um indicador de conexão em tempo real. O botão fica desabilitado durante a consulta.
