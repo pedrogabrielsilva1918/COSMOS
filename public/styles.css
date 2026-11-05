@@ -53,3 +53,5 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:28px;width:580px;
 .request-history{border-top:1px solid var(--line);margin-top:24px;padding-top:20px}.request-history .history-item>div{min-width:0;overflow-wrap:anywhere;white-space:pre-line}.request-history .section-heading{gap:12px;flex-wrap:wrap}
 
 .filters>label{min-width:0}.filters select{width:100%;text-overflow:ellipsis}.filters #clear-request-filters{white-space:nowrap;padding:10px 12px}#request-results{margin:0 0 12px}
+
+.request-print-link{display:inline-block;text-decoration:none;font-size:12px;padding:11px 14px}.request-print-link:focus-visible{outline:3px solid var(--teal);outline-offset:3px}

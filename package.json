@@ -11,6 +11,6 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check public/app.js && node --check sector-descriptions.js && node --check test/app.test.js"
+    "check": "node --check server.js && node --check public/app.js && node --check sector-descriptions.js && node --check test/app.test.js && node --check request-print.js && node --check public/print.js"
   }
 }
