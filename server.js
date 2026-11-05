@@ -104,6 +104,10 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
   if (!db.prepare('PRAGMA table_info(requests)').all().some(column => column.name === 'assigned_to')) {
     db.exec('ALTER TABLE requests ADD COLUMN assigned_to INTEGER REFERENCES users(id)');
   }
+  if (!db.prepare('PRAGMA table_info(audit)').all().some(column => column.name === 'request_id')) {
+    db.exec('ALTER TABLE audit ADD COLUMN request_id INTEGER REFERENCES requests(id)');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS audit_request ON audit(org_id,request_id,id)');
   const rate = new Map();
   const janitor = setInterval(() => {
     const now = Date.now();
@@ -111,7 +115,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
     db.prepare('DELETE FROM sessions WHERE expires < ?').run(now);
   }, 60000); janitor.unref();
   function transaction(fn) { db.exec('BEGIN IMMEDIATE'); try { const result = fn(); db.exec('COMMIT'); return result; } catch (e) { db.exec('ROLLBACK'); throw e; } }
-  function audit(user, action) { db.prepare('INSERT INTO audit(org_id,actor_id,action) VALUES (?,?,?)').run(user.org_id, user.id, action); }
+  function audit(user, action, requestId = null) { db.prepare('INSERT INTO audit(org_id,actor_id,action,request_id) VALUES (?,?,?,?)').run(user.org_id, user.id, action, requestId); }
   function admin(user) { const current = db.prepare('SELECT role,active FROM users WHERE id=?').get(user.id); if (!current?.active || current.role !== 'admin') fail(403, 'Acesso restrito ao administrador.'); }
   function sector(id, org, allowInactive = false) {
     if (!Number.isSafeInteger(id)) fail(400, 'Selecione um setor da organização.');
@@ -318,7 +322,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       if (req.method === 'POST' && path === '/api/requests') {
         const body = await readBody(req); const title = field(body, 'title', 160); const description = field(body, 'description', 5000); const sec = sector(body.sector_id, user.org_id);
         if (!['normal', 'alta', 'urgente'].includes(body.priority)) fail(400, 'Prioridade inválida.');
-        const id = transaction(() => { const id = Number(db.prepare('INSERT INTO requests(org_id,user_id,sector_id,title,description,priority) VALUES (?,?,?,?,?,?)').run(user.org_id, user.id, sec, title, description, body.priority).lastInsertRowid); audit(user, `Solicitação #${id} criada: ${title}`); return id; });
+        const id = transaction(() => { const id = Number(db.prepare('INSERT INTO requests(org_id,user_id,sector_id,title,description,priority) VALUES (?,?,?,?,?,?)').run(user.org_id, user.id, sec, title, description, body.priority).lastInsertRowid); audit(user, `Solicitação #${id} criada: ${title}`, id); return id; });
         return json(201, { id });
       }
       const assigneeMatch = /^\/api\/requests\/(\d+)\/assignee$/.exec(path);
@@ -340,7 +344,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
           }
           if (request.assigned_to !== assignedTo) {
             db.prepare('UPDATE requests SET assigned_to=? WHERE id=? AND org_id=?').run(assignedTo, request.id, user.org_id);
-            audit(user, `Responsável pela análise da solicitação #${request.id}: ${request.assigned_to ? '#' + request.assigned_to : 'não definido'} → ${target ? target.name + ' (#' + target.id + ')' : 'não definido'}`);
+            audit(user, `Responsável pela análise da solicitação #${request.id}: ${request.assigned_to ? '#' + request.assigned_to : 'não definido'} → ${target ? target.name + ' (#' + target.id + ')' : 'não definido'}`, request.id);
           }
         }); return json(200, { ok: true });
       }
@@ -353,9 +357,23 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
           if (request.status !== 'pendente') fail(409, 'Somente solicitações pendentes podem ter o prazo alterado.');
           if (request.due_date !== deadline) {
             db.prepare('UPDATE requests SET due_date=? WHERE id=? AND org_id=?').run(deadline, request.id, user.org_id);
-            audit(user, `Prazo da solicitação #${request.id}: ${request.due_date || 'sem prazo'} → ${deadline || 'sem prazo'}`);
+            audit(user, `Prazo da solicitação #${request.id}: ${request.due_date || 'sem prazo'} → ${deadline || 'sem prazo'}`, request.id);
           }
         }); return json(200, { ok: true });
+      }
+      const historyMatch = /^\/api\/requests\/(\d+)\/history$/.exec(path);
+      if (req.method === 'GET' && historyMatch) {
+        const requestId = Number(historyMatch[1]);
+        if (!Number.isSafeInteger(requestId) || requestId <= 0) fail(400, 'Solicitação inválida.');
+        const request = db.prepare('SELECT user_id FROM requests WHERE id=? AND org_id=?').get(requestId, user.org_id);
+        if (!request || (user.role !== 'admin' && request.user_id !== user.id)) fail(404, 'Solicitação não encontrada.');
+        const rawBefore = url.searchParams.get('before');
+        if (rawBefore !== null && !/^[1-9]\d*$/.test(rawBefore)) fail(400, 'Cursor de movimentações inválido.');
+        const before = rawBefore === null ? Number.MAX_SAFE_INTEGER : Number(rawBefore);
+        if (!Number.isSafeInteger(before) || before <= 0) fail(400, 'Cursor de movimentações inválido.');
+        const rows = db.prepare('SELECT a.id,a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id WHERE a.org_id=? AND a.request_id=? AND a.id<? ORDER BY a.id DESC LIMIT 51').all(user.org_id, requestId, before);
+        const history = rows.slice(0, 50);
+        return json(200, { history, nextBefore: rows.length > 50 ? history.at(-1).id : null });
       }
       const commentMatch = /^\/api\/requests\/(\d+)\/comments$/.exec(path);
       if (commentMatch) {
@@ -374,7 +392,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const body = await readBody(req); const content = field(body, 'content', 2000);
         const id = transaction(() => {
           const result = db.prepare('INSERT INTO request_comments(request_id,user_id,content) VALUES (?,?,?)').run(requestId, user.id, content);
-          audit(user, `Comentário adicionado à solicitação #${requestId}`);
+          audit(user, `Comentário adicionado à solicitação #${requestId}`, requestId);
           return Number(result.lastInsertRowid);
         }); return json(201, { id });
       }
@@ -388,7 +406,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
           if (request.user_id === user.id) fail(403, 'Outro administrador deve avaliar sua solicitação.');
           if (request.status !== 'pendente') fail(409, 'Esta solicitação já foi avaliada.');
           db.prepare("UPDATE requests SET status=?,decision=?,decided_by=?,decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?").run(body.status, decision, user.id, request.id, user.org_id);
-          audit(user, `Solicitação #${request.id} ${body.status}: ${decision}`);
+          audit(user, `Solicitação #${request.id} ${body.status}: ${decision}`, request.id);
         }); return json(200, { ok: true });
       }
       fail(404, 'Recurso não encontrado.');
