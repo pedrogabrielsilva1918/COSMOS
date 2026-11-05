@@ -220,6 +220,11 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const query = (url.searchParams.get('q') || '').trim().toLocaleLowerCase('pt-BR');
         const deadline = url.searchParams.get('deadline') || '';
         const assignment = url.searchParams.get('assignment') || '';
+        const priority = url.searchParams.get('priority') || '';
+        const sectorFilter = url.searchParams.get('sector_id') || '';
+        if (priority && !['normal', 'alta', 'urgente'].includes(priority)) fail(400, 'Filtro de prioridade inválido.');
+        if (sectorFilter && (!/^[1-9]\d*$/.test(sectorFilter) || !Number.isSafeInteger(Number(sectorFilter)))) fail(400, 'Filtro de setor inválido.');
+        if (sectorFilter && !db.prepare('SELECT id FROM sectors WHERE id=? AND org_id=?').get(Number(sectorFilter), user.org_id)) fail(400, 'Filtro de setor inválido.');
         if (assignment && !['mine', 'unassigned'].includes(assignment)) fail(400, 'Filtro de responsável inválido.');
         if (assignment) admin(user);
         if (deadline && deadline !== 'overdue') fail(400, 'Filtro de prazo inválido.');
@@ -230,6 +235,8 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         let conditions = 'r.org_id=?';
         if (user.role !== 'admin') { conditions += ' AND r.user_id=?'; params.push(user.id); }
         if (status) { conditions += ' AND r.status=?'; params.push(status); }
+        if (priority) { conditions += ' AND r.priority=?'; params.push(priority); }
+        if (sectorFilter) { conditions += ' AND r.sector_id=?'; params.push(Number(sectorFilter)); }
         const rows = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer,a.name AS assignee_name,CASE WHEN a.active=1 AND a.role='admin' THEN 1 ELSE 0 END AS assignee_available FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by LEFT JOIN users a ON a.id=r.assigned_to AND a.org_id=r.org_id WHERE ${conditions} ORDER BY r.id DESC`).all(...params)
           .filter(r => `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(query) && (!deadline || isRequestOverdue(r, today)) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))));
         const labels = { pendente: 'Pendente', aprovada: 'Aprovada', recusada: 'Recusada', normal: 'Normal', alta: 'Alta', urgente: 'Urgente' };
