@@ -784,3 +784,56 @@ test('filtros de setor e prioridade: combinações, setores antigos e exportaç�
   assert.equal((await call('/api/requests/export.csv?priority=alta')).status,401);
   containsOnly(await csv(`sector_id=${otherSector}&priority=urgente`,other.cookie),[6]);
 });
+
+test('impressão do pedido: autorização, dados atuais, HTML seguro e ausência de alterações', async t => {
+  const app=createApp({databasePath:':memory:'});app.listen(0,'127.0.0.1');await once(app,'listening');
+  t.after(()=>new Promise(resolve=>app.close(resolve)));
+  const base=`http://127.0.0.1:${app.address().port}`;
+  async function call(path,body,cookie='') {const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
+  async function print(id,cookie='') {const response=await fetch(`${base}/api/requests/${id}/print`,{headers:{cookie}});return {response,text:await response.text()};}
+  const password='Impressao-teste-2026';
+  const a=await call('/api/register',{name:'Admin & análise',organization:'Empresa <exemplo>',type:'privada',email:'impressao@empresa.com',password});
+  const b=await call('/api/register',{name:'Admin externo',organization:'Outra',type:'publica',email:'impressao@outra.com',password});
+  const sector=(await call('/api/workspace',undefined,a.cookie)).data.sectors[0].id;
+  await call('/api/users',{name:'Autor <teste>',email:'impressao-autor@empresa.com',password,role:'colaborador',sector_id:sector},a.cookie);
+  await call('/api/users',{name:'Colega',email:'impressao-colega@empresa.com',password,role:'colaborador',sector_id:sector},a.cookie);
+  const author=await call('/api/login',{email:'impressao-autor@empresa.com',password});const colleague=await call('/api/login',{email:'impressao-colega@empresa.com',password});
+  const title='<script>alert("teste")</script>';
+  const description='Primeira linha & detalhes\nSegunda linha <img src=x onerror=alert(1)>';
+  const created=await call('/api/requests',{title,description,priority:'urgente',sector_id:sector},author.cookie);const id=created.data.id;
+  assert.equal((await print(id)).response.status,401);
+  assert.equal((await print(id,colleague.cookie)).response.status,404);
+  assert.equal((await print(id,b.cookie)).response.status,404);
+  assert.equal((await print(999999,a.cookie)).response.status,404);
+  assert.equal((await print('9007199254740992',a.cookie)).response.status,400);
+  const pending=await print(id,author.cookie);assert.equal(pending.response.status,200);
+  assert.match(pending.response.headers.get('content-type'),/text\/html/);assert.equal(pending.response.headers.get('cache-control'),'no-store');
+  assert.match(pending.response.headers.get('content-security-policy'),/script-src 'self'/);
+  assert.match(pending.text,/Aguardando análise/);assert.match(pending.text,/Sem prazo/);assert.match(pending.text,/Não definido/);
+  assert.ok(pending.text.includes('&lt;script&gt;alert(&quot;teste&quot;)&lt;/script&gt;'));
+  assert.ok(pending.text.includes('Primeira linha &amp; detalhes\nSegunda linha &lt;img'));
+  assert.ok(pending.text.includes('Empresa &lt;exemplo&gt;'));assert.ok(pending.text.includes('Autor &lt;teste&gt;'));
+  assert.equal(pending.text.includes('<script>alert'),false);assert.equal(pending.text.includes('<img'),false);
+  assert.equal(pending.text.includes('impressao-autor@empresa.com'),false);
+  assert.match(pending.text,/COS-00001/);assert.match(pending.text,/Urgente/);assert.match(pending.text,/não possui assinatura digital/);
+  await call(`/api/requests/${id}/deadline`,{due_date:'2026-12-15'},a.cookie);
+  await call(`/api/requests/${id}/assignee`,{assigned_to:a.data.id},a.cookie);
+  await call(`/api/requests/${id}/decision`,{status:'aprovada',decision:'Aprovado <com ressalva> & conferido'},a.cookie);
+  const before=(await call('/api/workspace',undefined,a.cookie)).data;
+  const approved=await print(id,a.cookie);assert.equal(approved.response.status,200);
+  assert.match(approved.text,/Aprovada/);assert.match(approved.text,/15\/12\/2026/);assert.match(approved.text,/Admin &amp; análise/);
+  assert.match(approved.text,/Aprovado &lt;com ressalva&gt; &amp; conferido/);assert.match(approved.text,/Decidida em · Brasília/);
+  assert.equal(approved.text.includes('Aguardando análise.'),false);
+  assert.deepEqual((await call('/api/workspace',undefined,a.cookie)).data,before);
+  for(const [path,mime] of [['/print.css','text/css'],['/print.js','text/javascript']]) {const r=await fetch(base+path);assert.equal(r.status,200);assert.ok(r.headers.get('content-type').startsWith(mime));}
+  const refused=await call('/api/requests',{title:'Segundo pedido',description:'Outro',priority:'normal',sector_id:sector},author.cookie);
+  await call(`/api/requests/${refused.data.id}/decision`,{status:'recusada',decision:'Rever quantidades'},a.cookie);
+  assert.match((await print(refused.data.id,author.cookie)).text,/Recusada/);
+  await call('/api/logout',{},author.cookie);assert.equal((await print(id,author.cookie)).response.status,401);
+});
+
+test('resumo imprimível usa Brasília e preserva a data do prazo sem fuso', async () => {
+  const { renderRequestPrint }=await import('../request-print.js');
+  const html=renderRequestPrint({organization:{name:'Órgão',type:'publica'},generatedAt:new Date('2026-11-06T01:30:00Z'),request:{id:25,title:'Pedido',author:'Pessoa',sector:'Setor',priority:'alta',status:'pendente',created_at:'2026-11-06T01:30:00Z',due_date:'2026-11-06',description:'Descrição'}});
+  assert.match(html,/05\/11\/2026, 22:30:00/);assert.match(html,/06\/11\/2026<\/dd>/);assert.match(html,/Organização pública/);assert.match(html,/COS-00025/);
+});

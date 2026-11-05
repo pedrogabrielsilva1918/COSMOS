@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { renderRequestPrint } from './request-print.js';
 import { defaultSectorDescription } from './sector-descriptions.js';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual, createHash } from 'node:crypto';
@@ -141,7 +142,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       const path = url.pathname;
       if (!path.startsWith('/api/')) {
         if (req.method !== 'GET') fail(405, 'Método não permitido.');
-        const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'] };
+        const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'], '/print.css': ['print.css', 'text/css'], '/print.js': ['print.js', 'text/javascript'] };
         if (!assets[path]) fail(404, 'Página não encontrada.');
         const [file, mime] = assets[path];
         res.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8` }); return res.end(readFileSync(join(root, 'public', file)));
@@ -367,6 +368,16 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
             audit(user, `Prazo da solicitação #${request.id}: ${request.due_date || 'sem prazo'} → ${deadline || 'sem prazo'}`, request.id);
           }
         }); return json(200, { ok: true });
+      }
+      const printMatch = /^\/api\/requests\/(\d+)\/print$/.exec(path);
+      if (req.method === 'GET' && printMatch) {
+        const requestId = Number(printMatch[1]);
+        if (!Number.isSafeInteger(requestId) || requestId <= 0) fail(400, 'Solicitação inválida.');
+        const request = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer,a.name AS assignee_name,CASE WHEN a.active=1 AND a.role='admin' THEN 1 ELSE 0 END AS assignee_available FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by LEFT JOIN users a ON a.id=r.assigned_to AND a.org_id=r.org_id WHERE r.id=? AND r.org_id=?`).get(requestId, user.org_id);
+        if (!request || (user.role !== 'admin' && request.user_id !== user.id)) fail(404, 'Solicitação não encontrada.');
+        const organization = db.prepare('SELECT name,type FROM organizations WHERE id=?').get(user.org_id);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end(renderRequestPrint({ request, organization }));
       }
       const historyMatch = /^\/api\/requests\/(\d+)\/history$/.exec(path);
       if (req.method === 'GET' && historyMatch) {

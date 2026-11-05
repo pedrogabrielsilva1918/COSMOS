@@ -95,6 +95,14 @@ O solicitante vê somente o histórico dos próprios pedidos; administradores po
 
 A API `GET /api/requests/:id/history?before=ID` retorna `history` e `nextBefore`, com as mesmas restrições de acesso do pedido. Ela não altera os dados.
 
+## Imprimir ou salvar um pedido em PDF
+
+Abra uma solicitação e clique em **Imprimir / salvar PDF**. O resumo abre em outra aba com dados consultados novamente no servidor: organização, protocolo, situação, título, solicitante, setor, prioridade, prazo, responsável, descrição e decisão. Na nova aba, clique em **Imprimir / salvar PDF** e escolha **Salvar como PDF** no destino da impressão do navegador, ou uma impressora disponível.
+
+Datas e horários são apresentados no horário de Brasília. O resumo mostra o momento da geração e não possui assinatura digital. Comentários e movimentações continuam disponíveis na consulta do pedido no sistema. Para obter uma cópia atualizada, abra novamente o resumo.
+
+O endpoint `GET /api/requests/:id/print` exige sessão válida e permite somente o autor ou administradores da mesma organização. A resposta usa `Cache-Control: no-store`. Se a sessão expirar, entre novamente no COSMOS e reabra o resumo. Não há alteração no banco de dados.
+
 ## Filtros das solicitações
 
 Em **Solicitações**, combine busca por título/protocolo, situação, prazo, setor e prioridade. Administradores também podem usar o responsável. O contador indica quantos pedidos estão sendo exibidos dentre os permitidos à sua conta. **Limpar filtros** restaura a lista completa permitida ao perfil.
@@ -202,6 +210,9 @@ server.js           API HTTP, autenticação e banco SQLite
 public/index.html   Interface
 public/styles.css   Layout responsivo
 public/app.js       Navegação e integração com a API
+request-print.js    Resumo HTML seguro da solicitação
+public/print.css    Layout de tela e impressão A4
+public/print.js     Abertura da impressão pelo navegador
 test/app.test.js    Testes de integração
 ```
 
@@ -222,6 +233,7 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/users` | Administrador |
 | POST | `/api/users/:id` | Administrador da mesma organização: edita nome, setor, perfil e acesso |
 | POST | `/api/requests` | Autenticado |
+| GET | `/api/requests/:id/print` | Autor ou administrador da mesma organização; resumo HTML para impressão |
 | GET | `/api/requests/export.csv?q=busca&status=pendente&deadline=overdue&assignment=mine&sector_id=1&priority=alta` | Autenticado; mesmas permissões da lista; filtros opcionais |
 | GET | `/api/requests/:id/comments?before=ID` | Autor ou administrador da mesma organização; páginas de até 50 mensagens |
 | POST | `/api/requests/:id/comments` | Autor ou administrador da mesma organização; JSON com `content` |
