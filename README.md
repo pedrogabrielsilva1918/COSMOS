@@ -161,6 +161,12 @@ A atualização adiciona automaticamente a coluna `active` ao banco existente e 
 
 ## Testes
 
+Execute `npm run check` para conferir a sintaxe do servidor, da interface, das descrições de setores e dos testes. Execute `npm test` para rodar a suíte de integração. Não é preciso instalar dependências externas.
+
+No GitHub, abra **Actions → Testes COSMOS** para acompanhar cada execução. O fluxo roda em pushes, pull requests e manualmente pelo botão **Run workflow** na branch que contém essa configuração. Ele usa Node.js 24, verifica a sintaxe antes da integração e tem limite de dez minutos. Execuções anteriores do mesmo pull request ou da mesma branch são canceladas quando uma atualização chega. Os testes usam bancos temporários; o banco do seu Codespace não é acessado.
+
+Antes de integrar um PR, confira se **Sintaxe e integração (Node 24)** ficou verde. Essa verificação não configura bloqueio obrigatório de merge nas regras do repositório.
+
 ```bash
 npm test
 ```

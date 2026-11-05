@@ -1,6 +1,16 @@
 {
-  "name": "cosmos-gestao", "version": "0.1.0", "private": true,
+  "name": "cosmos-gestao",
+  "version": "0.1.0",
+  "private": true,
   "description": "Gestão administrativa para organizações públicas e privadas",
-  "type": "module", "engines": {"node": ">=24"},
-  "scripts": {"start": "node server.js", "dev": "node --watch server.js", "test": "node --test"}
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "check": "node --check server.js && node --check public/app.js && node --check sector-descriptions.js && node --check test/app.test.js"
+  }
 }
