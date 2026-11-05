@@ -109,6 +109,14 @@ Datas e horários são apresentados no horário de Brasília. O resumo mostra o 
 
 O endpoint `GET /api/requests/:id/print` exige sessão válida e permite somente o autor ou administradores da mesma organização. A resposta usa `Cache-Control: no-store`. Se a sessão expirar, entre novamente no COSMOS e reabra o resumo. Não há alteração no banco de dados.
 
+## Ordenação das solicitações
+
+Em **Solicitações → Ordenar solicitações**, escolha **Mais recentes** (padrão), **Mais antigas**, **Maior prioridade** ou **Prazo mais próximo**. A ordenação combina com os filtros e vale também para o CSV. O botão **Atualizar dados** preserva a escolha. **Limpar filtros** e sair da conta restauram Mais recentes.
+
+Recentes e antigas usam a sequência de cadastro (ID/protocolo). Maior prioridade mostra Urgente, Alta e Normal; empates mostram os pedidos mais antigos primeiro. Prazo mais próximo mostra datas em ordem crescente, incluindo vencidas antes das futuras, e deixa pedidos sem prazo por último. Na mesma data, desempata por prioridade e depois pelos mais antigos. Com todas as situações selecionadas, pedidos já decididos também participam da ordenação.
+
+O atalho de pendentes vencidas abre a fila por prazo. O CSV aceita o parâmetro opcional `order=recent|oldest|priority|deadline`, validado no servidor. A lista e a exportação usam a mesma regra de ordenação; as permissões existentes são mantidas. Nenhuma migração do banco é necessária.
+
 ## Filtros das solicitações
 
 Em **Solicitações**, combine busca por título/protocolo, situação, prazo, setor e prioridade. Administradores também podem usar o responsável. O contador indica quantos pedidos estão sendo exibidos dentre os permitidos à sua conta. **Limpar filtros** restaura a lista completa permitida ao perfil.

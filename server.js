@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { orderRequests, REQUEST_ORDERS } from './public/request-order.js';
 import { renderRequestPrint } from './request-print.js';
 import { createClientAddress } from './client-address.js';
 import { defaultSectorDescription } from './sector-descriptions.js';
@@ -148,7 +149,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       const path = url.pathname;
       if (!path.startsWith('/api/')) {
         if (req.method !== 'GET') fail(405, 'Método não permitido.');
-        const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'], '/print.css': ['print.css', 'text/css'], '/print.js': ['print.js', 'text/javascript'] };
+        const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'], '/print.css': ['print.css', 'text/css'], '/print.js': ['print.js', 'text/javascript'], '/request-order.js': ['request-order.js', 'text/javascript'] };
         if (!assets[path]) fail(404, 'Página não encontrada.');
         const [file, mime] = assets[path];
         res.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8` }); return res.end(readFileSync(join(root, 'public', file)));
@@ -229,6 +230,8 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const assignment = url.searchParams.get('assignment') || '';
         const priority = url.searchParams.get('priority') || '';
         const sectorFilter = url.searchParams.get('sector_id') || '';
+        const order = url.searchParams.get('order') || 'recent';
+        if (!REQUEST_ORDERS.includes(order)) fail(400, 'Ordenação inválida.');
         if (priority && !['normal', 'alta', 'urgente'].includes(priority)) fail(400, 'Filtro de prioridade inválido.');
         if (sectorFilter && (!/^[1-9]\d*$/.test(sectorFilter) || !Number.isSafeInteger(Number(sectorFilter)))) fail(400, 'Filtro de setor inválido.');
         if (sectorFilter && !db.prepare('SELECT id FROM sectors WHERE id=? AND org_id=?').get(Number(sectorFilter), user.org_id)) fail(400, 'Filtro de setor inválido.');
@@ -248,7 +251,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
           .filter(r => `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(query) && (!deadline || isRequestOverdue(r, today)) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))));
         const labels = { pendente: 'Pendente', aprovada: 'Aprovada', recusada: 'Recusada', normal: 'Normal', alta: 'Alta', urgente: 'Urgente' };
         const header = ['Protocolo', 'Título', 'Solicitante', 'Setor', 'Situação', 'Prioridade', 'Descrição', 'Criada em (UTC)', 'Decidida em (UTC)', 'Responsável pela decisão', 'Parecer', 'Prazo (AAAA-MM-DD)', 'Responsável pela análise'];
-        const csv = [header, ...rows.map(r => [`COS-${String(r.id).padStart(5, '0')}`, r.title, r.author, r.sector, labels[r.status], labels[r.priority], r.description, r.created_at, r.decided_at, r.reviewer, r.decision, r.due_date, r.assignee_name])]
+        const csv = [header, ...orderRequests(rows, order).map(r => [`COS-${String(r.id).padStart(5, '0')}`, r.title, r.author, r.sector, labels[r.status], labels[r.priority], r.description, r.created_at, r.decided_at, r.reviewer, r.decision, r.due_date, r.assignee_name])]
           .map(row => row.map(csvCell).join(';')).join('\r\n') + '\r\n';
         res.writeHead(200, {
           'Content-Type': 'text/csv; charset=utf-8',
