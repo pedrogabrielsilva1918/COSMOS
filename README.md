@@ -193,6 +193,32 @@ Somente conexões originadas de um IP cadastrado podem usar o cabeçalho. A cade
 
 Não inclua redes de usuários na lista de proxies. Esta configuração não detecta automaticamente a infraestrutura do GitHub Codespaces, não resolve usuários atrás de NAT e não compartilha contadores entre processos. A janela e os limites existentes são mantidos.
 
+## Backup do banco
+
+Implementação baseada na [API de backup do SQLite no Node.js 24](https://nodejs.org/download/release/latest-v24.x/docs/api/sqlite.html#sqlitebackupsourceDb-path-options).
+
+Na pasta do COSMOS, execute:
+
+```bash
+npm run backup
+```
+
+O comando lê `DATABASE_PATH` do ambiente ou usa `data/cosmos.sqlite`. Cria um arquivo com nome único em `backups/`, mostra o caminho e verifica sua integridade e os vínculos entre registros antes de anunciar sucesso. A cópia usa a API de backup do SQLite, incluindo dados confirmados no WAL; pode ser executada com o servidor aberto, embora seja mais simples parar o servidor antes de atualizações. Escritas simultâneas podem prolongar a operação. O comando não aplica migrações nem altera os registros da origem.
+
+Para usar outro banco ou pasta:
+
+```bash
+npm run backup -- --database /caminho/cosmos.sqlite --output-dir /caminho/copias
+```
+
+O `.env` não é carregado automaticamente. Se você o usa para configurar o banco, execute `node --env-file=.env backup.js` ou informe `--database` com o mesmo caminho usado pelo servidor. Um banco inexistente não será criado silenciosamente. O comando não substitui backups existentes e só publica o arquivo final após a conferência. No Linux, novas pastas recebem permissão 700 e o arquivo recebe 600. Pastas existentes mantêm suas permissões; os arquivos são ignorados pelo Git.
+
+A cópia contém os dados de todas as organizações, senhas protegidas e sessões existentes. Guarde-a em local privado e faça download para fora do Codespace: apagar o Codespace também pode apagar as cópias locais. O comando não envia arquivos nem agenda backups automaticamente.
+
+### Conferir uma restauração
+
+Com o servidor parado, copie o arquivo gerado para **uma pasta nova de teste**, preservando o backup e o diretório `data/` atuais. Inicie o COSMOS apontando `DATABASE_PATH` para essa cópia, usando uma porta privada diferente se necessário. Confira login, setores, pessoas, pedidos, comentários e movimentações. Ao terminar, pare essa instância antes de voltar ao banco habitual. A cópia testada pode receber migrações ao iniciar; por isso use uma cópia, nunca o único backup. Não coloque o arquivo restaurado ao lado de WAL/SHM pertencentes a outro banco. Nenhuma restauração sobre o banco atual é realizada pelo comando de backup.
+
 ## Testes
 
 Execute `npm run check` para conferir a sintaxe do servidor, da interface, das descrições de setores e dos testes. Execute `npm test` para rodar a suíte de integração. Não é preciso instalar dependências externas.
@@ -217,6 +243,7 @@ Essa conferência não substitui um teste com login real no seu Codespace. Auten
 
 ```text
 server.js           API HTTP, autenticação e banco SQLite
+backup.js           Backup SQLite com validação de integridade
 public/index.html   Interface
 public/styles.css   Layout responsivo
 public/app.js       Navegação e integração com a API
@@ -257,4 +284,4 @@ Este MVP não é uma implantação de produção. Antes de usar dados reais de f
 
 Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail, anexos, edição de solicitações, notificações ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
 
-Faça backup com o servidor parado, copiando o diretório `data` completo (incluindo eventuais arquivos WAL/SHM). Guarde o backup fora do repositório e limite o acesso ao diretório do banco.
+Use `npm run backup` para gerar uma cópia SQLite autônoma e verificada. Como alternativa manual, pare o servidor e copie o diretório `data` completo, incluindo eventuais arquivos WAL/SHM. Guarde uma cópia fora do Codespace e limite o acesso.
