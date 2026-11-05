@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Atualizar os dados da equipe
+
+O botão **Atualizar dados** no topo consulta novamente os dados permitidos à conta. O horário exibido indica a última atualização concluída, no horário do dispositivo; não é um indicador de conexão em tempo real. O botão fica desabilitado durante a consulta.
+
+A atualização preserva a página aberta e os filtros, desde que o setor selecionado continue disponível. Indicadores, listas, responsáveis e histórico geral são atualizados juntos. Comentários e movimentações dentro de um pedido têm seus próprios botões **Atualizar**. Não há atualização automática em segundo plano. Falhas de rede mantêm os dados anteriores e mostram uma mensagem; sessão expirada volta à entrada. Respostas de consultas anteriores não substituem uma atualização mais recente nem reabrem uma sessão encerrada.
+
 ## Visual Conexão Coral
 
 A interface usa fundo claro, coral e verde-água, com ícones vetoriais locais e tipografia mais legível. A página inicial tem atalhos para solicitações, setores e o guia **Como funciona**, com orientações conforme o perfil de acesso. O nome da saudação e os indicadores continuam usando os dados da conta conectada.

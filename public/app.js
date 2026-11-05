@@ -7,12 +7,13 @@ const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}
 const formatDeadline = value => value ? String(value).split('-').reverse().join('/') : 'Sem prazo';
 const deadlineBadge = request => `<span class="deadline-label ${request.is_overdue ? 'deadline-late' : ''}">${escapeHTML(formatDeadline(request.due_date))}${request.is_overdue ? '<small>Prazo vencido</small>' : ''}</span>`;
 const assigneeBadge = request => `<span class="request-assignee">${escapeHTML(request.assignee_name || 'Não definido')}${request.status === 'pendente' && request.assigned_to && !request.assignee_available ? '<small>Reatribuição necessária</small>' : ''}</span>`;
-let state, currentView = 'dashboard', registering = false, noticeTimer;
+let state, currentView = 'dashboard', registering = false, noticeTimer, workspaceEpoch = 0, refreshSequence = 0;
 async function api(path, body) {
+  const epoch = workspaceEpoch, sequence = refreshSequence;
   const res = await fetch(`/api${path}`, { method: body === undefined ? 'GET' : 'POST', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const data = await res.json();
   if (!res.ok) {
-    if (res.status === 401 && state) { state = null; $('#modal').close(); showAuth(); }
+    if (res.status === 401 && epoch === workspaceEpoch && (path !== '/workspace' || sequence === refreshSequence) && state) { state = null; $('#modal').close(); showAuth(); }
     throw new Error(data.error || 'Não foi possível concluir.');
   }
   return data;
@@ -21,7 +22,7 @@ function notify(message) { clearTimeout(noticeTimer); $('#notice').textContent =
 function clearRequestFilters() {
   for (const id of ['request-search', 'status-filter', 'deadline-filter', 'assignment-filter', 'sector-filter', 'priority-filter']) $(`#${id}`).value = '';
 }
-function showAuth() { currentView = 'dashboard'; clearRequestFilters(); $('#workspace').hidden = true; $('#auth').hidden = false; }
+function showAuth() { workspaceEpoch++; refreshSequence++; $('#refresh-workspace').disabled = false; $('#refresh-workspace').textContent = 'Atualizar dados ↻'; $('#refresh-workspace').removeAttribute('aria-busy'); $('#workspace-updated').textContent = ''; currentView = 'dashboard'; clearRequestFilters(); $('#workspace').hidden = true; $('#auth').hidden = false; }
 function authMode(value) {
   registering = value;
   $('#registration-fields').hidden = !value;
@@ -37,7 +38,7 @@ function authMode(value) {
 $('#login-tab').onclick = () => authMode(false); $('#register-tab').onclick = () => authMode(true);
 $('#auth-form').onsubmit = async event => {
   event.preventDefault(); const button = $('#auth-submit'); button.disabled = true; $('#auth-error').textContent = '';
-  try { await api(registering ? '/register' : '/login', Object.fromEntries(new FormData(event.target))); event.target.reset(); await refresh(); }
+  try { await api(registering ? '/register' : '/login', Object.fromEntries(new FormData(event.target))); workspaceEpoch++; refreshSequence++; event.target.reset(); await refresh(); }
   catch (error) { $('#auth-error').textContent = error.message; } finally { button.disabled = false; }
 };
 async function logout() { try { await api('/logout', {}); state = null; $('#modal').close(); showAuth(); } catch (error) { notify(error.message); } }
@@ -133,32 +134,45 @@ $('#export-requests').onclick = async () => {
   finally { button.disabled = false; button.textContent = 'Exportar CSV ↓'; }
 };
 
+$('#refresh-workspace').onclick = async () => {
+  try { await refresh(); }
+  catch (error) { if (state) notify('Não foi possível atualizar. Os dados anteriores foram mantidos. ' + error.message); else $('#auth-error').textContent = error.message; }
+};
 async function refresh() {
-  state = await api('/workspace'); $('#auth').hidden = true; $('#workspace').hidden = false;
-  const admin = state.user.role === 'admin';
-  if (!admin && ['people', 'history'].includes(currentView)) currentView = 'dashboard';
-  if (!admin) $('#assignment-filter').value = '';
-  for (const el of document.querySelectorAll('[data-admin]')) el.hidden = !admin;
-  $('#org-name').textContent = state.organization.name; $('#org-type').textContent = state.organization.type === 'publica' ? 'Organização pública' : 'Empresa privada';
-  $('#account-name').textContent = state.user.name; $('#account-role').textContent = admin ? 'Administrador' : 'Colaborador';
-  $('#avatar').textContent = state.user.name.split(' ').filter(Boolean).slice(0, 2).map(x => x[0]).join('').toUpperCase();
-  $('#my-review-queue').textContent = `Minha fila (${state.requests.filter(r => r.status === 'pendente' && r.assigned_to === state.user.id && r.assignee_available === 1).length})`;
-  $('#today').textContent = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
-  $('#greeting').textContent = `Olá, ${state.user.name.split(' ')[0]}`;
-  const pending = state.requests.filter(r => r.status === 'pendente').length; $('#pending-count').textContent = pending;
-  const metrics = [['Pendentes', pending, 'Aguardando uma decisão', 'clock'], ['Aprovadas', state.requests.filter(r => r.status === 'aprovada').length, 'Pedidos autorizados', 'check'], ['Total de pedidos', state.requests.length, 'Todas as situações', 'document'], ['Setores ativos', state.sectors.filter(s => s.active).length, 'Áreas da organização', 'sectors']];
-  const overdueCount = state.requests.filter(r => r.is_overdue).length;
-  $('#overdue-alert').hidden = overdueCount === 0;
-  $('#overdue-alert').innerHTML = `${icon('clock')}<span><strong>${overdueCount} ${overdueCount === 1 ? 'solicitação com prazo vencido' : 'solicitações com prazo vencido'}</strong><small>Veja os pedidos pendentes que precisam de atenção.</small></span>${icon('arrow')}`;
-  $('#metrics').innerHTML = metrics.map(([label, value, subtitle, symbol]) => `<article class="metric"><span class="metric-symbol">${icon(symbol)}</span><div class="metric-content"><span class="metric-label">${label}</span><strong>${value}</strong><small>${subtitle}</small></div></article>`).join('');
-  const selectedSector = $('#sector-filter').value;
-  $('#sector-filter').innerHTML = '<option value="">Todos os setores</option>' + state.sectors.map(s => `<option value="${s.id}">${escapeHTML(s.name)}${s.active ? '' : ' (desativado)'}</option>`).join('');
-  $('#sector-filter').value = state.sectors.some(s => String(s.id) === selectedSector) ? selectedSector : '';
-  $('#recent-requests').innerHTML = table(state.requests.slice(0, 5)); renderRequests();
-  $('#sector-grid').innerHTML = state.sectors.map(s => `<article class="sector-card"><span class="sector-symbol">${icon('sectors')}</span><h2>${escapeHTML(s.name)}</h2><p class="sector-description">${escapeHTML(s.description || 'Descrição não informada.')}</p><p class="sector-meta">${s.active ? 'Ativo' : 'Desativado'}${admin ? ' · ' + state.users.filter(u => u.sector_id === s.id && u.active).length + ' pessoa(s) ativa(s)' : ''}</p>${admin ? `<button type="button" class="row-open sector-edit" data-sector="${s.id}" aria-label="Editar setor ${escapeHTML(s.name)}">Editar ↗</button>` : ''}</article>`).join('');
-  $('#people-table').innerHTML = `<table class="data-table"><thead><tr><th>NOME</th><th>E-MAIL</th><th>SETOR</th><th>PERFIL</th><th>ACESSO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${state.users.map(u => `<tr><td>${escapeHTML(u.name)}</td><td>${escapeHTML(u.email)}</td><td>${escapeHTML(u.sector)}</td><td>${u.role === 'admin' ? 'Administrador' : 'Colaborador'}</td><td>${u.active ? 'Ativo' : 'Desativado'}</td><td><button class="row-open" data-person="${u.id}" aria-label="Editar ${escapeHTML(u.name)}">Editar ↗</button></td></tr>`).join('')}</tbody></table>`;
-  $('#history-list').innerHTML = state.history.map(h => `<article class="history-item"><span class="history-dot">${icon('clock')}</span><div>${escapeHTML(h.action)}<small>${escapeHTML(h.actor)} · ${date(h.created_at)}</small></div></article>`).join('') || '<div class="empty">Nenhuma movimentação registrada.</div>';
-  setView(currentView);
+  const sequence = ++refreshSequence, epoch = workspaceEpoch;
+  const button = $('#refresh-workspace'); button.disabled = true; button.textContent = 'Atualizando…'; button.setAttribute('aria-busy', 'true');
+  try {
+    const nextState = await api('/workspace');
+    if (epoch !== workspaceEpoch || sequence !== refreshSequence) return;
+    state = nextState; $('#auth').hidden = true; $('#workspace').hidden = false;
+    const admin = state.user.role === 'admin';
+    if (!admin && ['people', 'history'].includes(currentView)) currentView = 'dashboard';
+    if (!admin) $('#assignment-filter').value = '';
+    for (const el of document.querySelectorAll('[data-admin]')) el.hidden = !admin;
+    $('#org-name').textContent = state.organization.name; $('#org-type').textContent = state.organization.type === 'publica' ? 'Organização pública' : 'Empresa privada';
+    $('#account-name').textContent = state.user.name; $('#account-role').textContent = admin ? 'Administrador' : 'Colaborador';
+    $('#avatar').textContent = state.user.name.split(' ').filter(Boolean).slice(0, 2).map(x => x[0]).join('').toUpperCase();
+    $('#my-review-queue').textContent = `Minha fila (${state.requests.filter(r => r.status === 'pendente' && r.assigned_to === state.user.id && r.assignee_available === 1).length})`;
+    $('#today').textContent = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+    $('#greeting').textContent = `Olá, ${state.user.name.split(' ')[0]}`;
+    const pending = state.requests.filter(r => r.status === 'pendente').length; $('#pending-count').textContent = pending;
+    const metrics = [['Pendentes', pending, 'Aguardando uma decisão', 'clock'], ['Aprovadas', state.requests.filter(r => r.status === 'aprovada').length, 'Pedidos autorizados', 'check'], ['Total de pedidos', state.requests.length, 'Todas as situações', 'document'], ['Setores ativos', state.sectors.filter(s => s.active).length, 'Áreas da organização', 'sectors']];
+    const overdueCount = state.requests.filter(r => r.is_overdue).length;
+    $('#overdue-alert').hidden = overdueCount === 0;
+    $('#overdue-alert').innerHTML = `${icon('clock')}<span><strong>${overdueCount} ${overdueCount === 1 ? 'solicitação com prazo vencido' : 'solicitações com prazo vencido'}</strong><small>Veja os pedidos pendentes que precisam de atenção.</small></span>${icon('arrow')}`;
+    $('#metrics').innerHTML = metrics.map(([label, value, subtitle, symbol]) => `<article class="metric"><span class="metric-symbol">${icon(symbol)}</span><div class="metric-content"><span class="metric-label">${label}</span><strong>${value}</strong><small>${subtitle}</small></div></article>`).join('');
+    const selectedSector = $('#sector-filter').value;
+    $('#sector-filter').innerHTML = '<option value="">Todos os setores</option>' + state.sectors.map(s => `<option value="${s.id}">${escapeHTML(s.name)}${s.active ? '' : ' (desativado)'}</option>`).join('');
+    $('#sector-filter').value = state.sectors.some(s => String(s.id) === selectedSector) ? selectedSector : '';
+    $('#recent-requests').innerHTML = table(state.requests.slice(0, 5)); renderRequests();
+    $('#sector-grid').innerHTML = state.sectors.map(s => `<article class="sector-card"><span class="sector-symbol">${icon('sectors')}</span><h2>${escapeHTML(s.name)}</h2><p class="sector-description">${escapeHTML(s.description || 'Descrição não informada.')}</p><p class="sector-meta">${s.active ? 'Ativo' : 'Desativado'}${admin ? ' · ' + state.users.filter(u => u.sector_id === s.id && u.active).length + ' pessoa(s) ativa(s)' : ''}</p>${admin ? `<button type="button" class="row-open sector-edit" data-sector="${s.id}" aria-label="Editar setor ${escapeHTML(s.name)}">Editar ↗</button>` : ''}</article>`).join('');
+    $('#people-table').innerHTML = `<table class="data-table"><thead><tr><th>NOME</th><th>E-MAIL</th><th>SETOR</th><th>PERFIL</th><th>ACESSO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${state.users.map(u => `<tr><td>${escapeHTML(u.name)}</td><td>${escapeHTML(u.email)}</td><td>${escapeHTML(u.sector)}</td><td>${u.role === 'admin' ? 'Administrador' : 'Colaborador'}</td><td>${u.active ? 'Ativo' : 'Desativado'}</td><td><button class="row-open" data-person="${u.id}" aria-label="Editar ${escapeHTML(u.name)}">Editar ↗</button></td></tr>`).join('')}</tbody></table>`;
+    $('#history-list').innerHTML = state.history.map(h => `<article class="history-item"><span class="history-dot">${icon('clock')}</span><div>${escapeHTML(h.action)}<small>${escapeHTML(h.actor)} · ${date(h.created_at)}</small></div></article>`).join('') || '<div class="empty">Nenhuma movimentação registrada.</div>';
+    setView(currentView);
+    $('#workspace-updated').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+  } finally {
+    if (epoch === workspaceEpoch && sequence === refreshSequence) { button.disabled = false; button.textContent = 'Atualizar dados ↻'; button.removeAttribute('aria-busy'); }
+  }
 }
 $('#workspace').addEventListener('click', event => { const button = event.target.closest('[data-request]'); if (button) showRequest(Number(button.dataset.request)); const person = event.target.closest('[data-person]'); if (person) editUserForm(Number(person.dataset.person)); const sector = event.target.closest('[data-sector]'); if (sector) editSectorForm(Number(sector.dataset.sector)); });
 $('#close-modal').onclick = () => $('#modal').close();
@@ -283,4 +297,5 @@ function showRequest(id) {
     catch (error) { if ($('#decision-error')) $('#decision-error').textContent = error.message; else notify(error.message); } finally { buttons.forEach(b => b.disabled = false); }
   };
 }
-refresh().catch(error => { showAuth(); if (!error.message.includes('Entre na sua conta')) notify(error.message); });
+const initialRefreshSequence = refreshSequence + 1;
+refresh().catch(error => { if (refreshSequence !== initialRefreshSequence) return; showAuth(); if (!error.message.includes('Entre na sua conta')) notify(error.message); });
