@@ -87,6 +87,14 @@ As opções `--port` e `--host` têm prioridade sobre `PORT` e `HOST`; sem opç�
 
 Há um `.env.example` como referência. Variáveis podem ser definidas no ambiente ou copiadas para `.env` e carregadas com `node --env-file=.env server.js`. O arquivo `.env` não é carregado automaticamente por `npm start` e não deve ser enviado ao Git.
 
+## Fila de análise
+
+Administradores têm o atalho **Minha fila** na página inicial. Ele abre os pedidos pendentes atribuídos à conta conectada. O contador e a lista usam os dados carregados no workspace; atualize a página para buscar alterações feitas por outras pessoas.
+
+Em **Solicitações → Filtrar responsável**, escolha **Minha fila (pendentes)** ou **Pendentes sem responsável ativo**. O segundo inclui pedidos sem atribuição e aqueles cujo responsável está desativado ou deixou de ser administrador. Selecionar essas opções ajusta a situação para Pendentes. Busca, prazo e situação podem ser combinados; uma combinação incompatível retorna lista vazia.
+
+A exportação CSV refaz a consulta no servidor e aplica os mesmos filtros. Os parâmetros opcionais `assignment=mine` e `assignment=unassigned` são exclusivos de administradores e não aceitam IDs de terceiros. Colaboradores continuam vendo e exportando somente seus pedidos e não recebem esses controles. O filtro não altera o responsável, as permissões ou a decisão.
+
 ## Responsável pela análise
 
 Como administrador, abra um pedido pendente e clique em **Definir responsável**. Escolha um administrador ativo da mesma organização, exceto o solicitante. Selecione **Sem responsável** para remover. Atribuição, troca e remoção ficam registradas no histórico. Pedidos aprovados ou recusados mantêm o vínculo para consulta e não aceitam sua alteração.
@@ -192,7 +200,7 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/users` | Administrador |
 | POST | `/api/users/:id` | Administrador da mesma organização: edita nome, setor, perfil e acesso |
 | POST | `/api/requests` | Autenticado |
-| GET | `/api/requests/export.csv?q=busca&status=pendente&deadline=overdue` | Autenticado; mesmas permissões da lista; filtros opcionais |
+| GET | `/api/requests/export.csv?q=busca&status=pendente&deadline=overdue&assignment=mine` | Autenticado; mesmas permissões da lista; filtros opcionais |
 | GET | `/api/requests/:id/comments?before=ID` | Autor ou administrador da mesma organização; páginas de até 50 mensagens |
 | POST | `/api/requests/:id/comments` | Autor ou administrador da mesma organização; JSON com `content` |
 | POST | `/api/requests/:id/assignee` | Administrador; JSON com `assigned_to` (ID numérico ou null); apenas pendentes da mesma organização |

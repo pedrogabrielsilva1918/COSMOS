@@ -18,7 +18,7 @@ async function api(path, body) {
   return data;
 }
 function notify(message) { clearTimeout(noticeTimer); $('#notice').textContent = message; $('#notice').hidden = false; noticeTimer = setTimeout(() => { $('#notice').hidden = true; }, 6000); }
-function showAuth() { currentView = 'dashboard'; $('#request-search').value = ''; $('#status-filter').value = ''; $('#deadline-filter').value = ''; $('#workspace').hidden = true; $('#auth').hidden = false; }
+function showAuth() { currentView = 'dashboard'; $('#request-search').value = ''; $('#status-filter').value = ''; $('#deadline-filter').value = ''; $('#assignment-filter').value = ''; $('#workspace').hidden = true; $('#auth').hidden = false; }
 function authMode(value) {
   registering = value;
   $('#registration-fields').hidden = !value;
@@ -83,6 +83,7 @@ function setView(view) {
 }
 for (const button of document.querySelectorAll('[data-view]')) button.onclick = () => setView(button.dataset.view);
 $('#see-all').onclick = () => setView('requests');
+$('#my-review-queue').onclick = () => { $('#request-search').value = ''; $('#status-filter').value = 'pendente'; $('#deadline-filter').value = ''; $('#assignment-filter').value = 'mine'; renderRequests(); setView('requests'); };
 $('#sidebar-new').onclick = () => requestForm();
 $('#hero-new').onclick = () => requestForm();
 $('#shortcut-requests').onclick = () => setView('requests');
@@ -98,14 +99,16 @@ function table(requests) {
 function renderRequests() {
   const search = $('#request-search').value.trim().toLocaleLowerCase('pt-BR'); const status = $('#status-filter').value;
   const overdueOnly = $('#deadline-filter').value === 'overdue';
-  $('#all-requests').innerHTML = table(state.requests.filter(r => (!status || r.status === status) && (!overdueOnly || r.is_overdue) && `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(search)));
+  const assignment = state.user.role === 'admin' ? $('#assignment-filter').value : '';
+  $('#all-requests').innerHTML = table(state.requests.filter(r => (!status || r.status === status) && (!overdueOnly || r.is_overdue) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === state.user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))) && `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(search)));
 }
 $('#request-search').oninput = renderRequests; $('#status-filter').onchange = renderRequests;
 $('#deadline-filter').onchange = renderRequests;
-$('#overdue-alert').onclick = () => { $('#request-search').value = ''; $('#status-filter').value = 'pendente'; $('#deadline-filter').value = 'overdue'; renderRequests(); setView('requests'); };
+$('#assignment-filter').onchange = () => { if ($('#assignment-filter').value) $('#status-filter').value = 'pendente'; renderRequests(); };
+$('#overdue-alert').onclick = () => { $('#request-search').value = ''; $('#status-filter').value = 'pendente'; $('#deadline-filter').value = 'overdue'; $('#assignment-filter').value = ''; renderRequests(); setView('requests'); };
 $('#export-requests').onclick = async () => {
   const button = $('#export-requests'); button.disabled = true; button.textContent = 'Preparando…';
-  const params = new URLSearchParams({ q: $('#request-search').value.trim(), status: $('#status-filter').value, deadline: $('#deadline-filter').value });
+  const params = new URLSearchParams({ q: $('#request-search').value.trim(), status: $('#status-filter').value, deadline: $('#deadline-filter').value, assignment: $('#assignment-filter').value });
   try {
     const response = await fetch(`/api/requests/export.csv?${params}`);
     if (!response.ok) {
@@ -126,10 +129,12 @@ async function refresh() {
   state = await api('/workspace'); $('#auth').hidden = true; $('#workspace').hidden = false;
   const admin = state.user.role === 'admin';
   if (!admin && ['people', 'history'].includes(currentView)) currentView = 'dashboard';
+  if (!admin) $('#assignment-filter').value = '';
   for (const el of document.querySelectorAll('[data-admin]')) el.hidden = !admin;
   $('#org-name').textContent = state.organization.name; $('#org-type').textContent = state.organization.type === 'publica' ? 'Organização pública' : 'Empresa privada';
   $('#account-name').textContent = state.user.name; $('#account-role').textContent = admin ? 'Administrador' : 'Colaborador';
   $('#avatar').textContent = state.user.name.split(' ').filter(Boolean).slice(0, 2).map(x => x[0]).join('').toUpperCase();
+  $('#my-review-queue').textContent = `Minha fila (${state.requests.filter(r => r.status === 'pendente' && r.assigned_to === state.user.id && r.assignee_available === 1).length})`;
   $('#today').textContent = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
   $('#greeting').textContent = `Olá, ${state.user.name.split(' ')[0]}`;
   const pending = state.requests.filter(r => r.status === 'pendente').length; $('#pending-count').textContent = pending;
