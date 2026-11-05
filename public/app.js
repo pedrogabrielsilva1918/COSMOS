@@ -1,4 +1,5 @@
 import { orderRequests } from './request-order.js';
+import { summarizeSectors } from './sector-overview.js';
 'use strict';
 const $ = selector => document.querySelector(selector);
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -102,6 +103,16 @@ function table(requests) {
   if (!requests.length) return '<div class="empty"><strong>Nenhuma solicitação por aqui.</strong>Crie uma solicitação ou ajuste os filtros para começar.</div>';
   return `<table class="data-table request-table"><thead><tr><th>SOLICITAÇÃO</th><th>SETOR</th><th>SITUAÇÃO</th><th>PRIORIDADE</th><th>PRAZO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${requests.map(r => `<tr><td data-label="Solicitação"><span class="request-title">${escapeHTML(r.title)}</span><span class="request-id">COS-${String(r.id).padStart(5, '0')} · ${escapeHTML(r.author)}</span><span class="request-assignee-line">Responsável: ${assigneeBadge(r)}</span></td><td data-label="Setor">${escapeHTML(r.sector)}</td><td data-label="Situação">${pill(r.status)}</td><td data-label="Prioridade"><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase() + r.priority.slice(1))}</span></td><td data-label="Prazo">${deadlineBadge(r)}</td><td data-label="Ações"><button class="row-open" data-request="${r.id}" aria-label="Abrir solicitação ${r.id}">Abrir ↗</button></td></tr>`).join('')}</tbody></table>`;
 }
+function renderSectorOverview() {
+  const sectors = summarizeSectors(state.sectors, state.requests);
+  $('#sector-overview-scope').textContent = state.user.role === 'admin' ? 'Pedidos da sua organização. Vencidos e urgentes contam somente os pendentes.' : 'Somente seus pedidos. Vencidos e urgentes contam somente os pendentes.';
+  $('#sector-overview').innerHTML = sectors.length ? `<table class="data-table sector-overview-table"><caption class="sr-only">Resumo dos pedidos visíveis por setor</caption><thead><tr><th scope="col">SETOR</th><th scope="col">TOTAL</th><th scope="col">PENDENTES</th><th scope="col">VENCIDOS</th><th scope="col">URGENTES</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead><tbody>${sectors.map(s => `<tr><th scope="row" data-label="Setor"><strong>${escapeHTML(s.name)}</strong>${s.active ? '' : '<small>Setor desativado</small>'}</th><td data-label="Total">${s.total}</td><td data-label="Pendentes">${s.pending}</td><td data-label="Vencidos"><span class="${s.overdue ? 'overview-warning' : ''}">${s.overdue}</span></td><td data-label="Urgentes"><span class="${s.urgent ? 'overview-warning' : ''}">${s.urgent}</span></td><td data-label="Ações"><button type="button" class="row-open" data-sector-requests="${s.id}" aria-label="Ver pedidos do setor ${escapeHTML(s.name)}">Ver pedidos ↗</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty"><strong>Ainda não há pedidos para resumir.</strong>Os setores com solicitações aparecerão aqui.</div>';
+}
+$('#sector-overview').addEventListener('click', event => {
+  const button = event.target.closest('[data-sector-requests]'); if (!button) return;
+  clearRequestFilters(); $('#sector-filter').value = button.dataset.sectorRequests;
+  renderRequests(); setView('requests');
+});
 function renderRequests() {
   const search = $('#request-search').value.trim().toLocaleLowerCase('pt-BR'); const status = $('#status-filter').value;
   const overdueOnly = $('#deadline-filter').value === 'overdue';
@@ -167,7 +178,7 @@ async function refresh() {
     const selectedSector = $('#sector-filter').value;
     $('#sector-filter').innerHTML = '<option value="">Todos os setores</option>' + state.sectors.map(s => `<option value="${s.id}">${escapeHTML(s.name)}${s.active ? '' : ' (desativado)'}</option>`).join('');
     $('#sector-filter').value = state.sectors.some(s => String(s.id) === selectedSector) ? selectedSector : '';
-    $('#recent-requests').innerHTML = table(state.requests.slice(0, 5)); renderRequests();
+    $('#recent-requests').innerHTML = table(state.requests.slice(0, 5)); renderRequests(); renderSectorOverview();
     $('#sector-grid').innerHTML = state.sectors.map(s => `<article class="sector-card"><span class="sector-symbol">${icon('sectors')}</span><h2>${escapeHTML(s.name)}</h2><p class="sector-description">${escapeHTML(s.description || 'Descrição não informada.')}</p><p class="sector-meta">${s.active ? 'Ativo' : 'Desativado'}${admin ? ' · ' + state.users.filter(u => u.sector_id === s.id && u.active).length + ' pessoa(s) ativa(s)' : ''}</p>${admin ? `<button type="button" class="row-open sector-edit" data-sector="${s.id}" aria-label="Editar setor ${escapeHTML(s.name)}">Editar ↗</button>` : ''}</article>`).join('');
     $('#people-table').innerHTML = `<table class="data-table"><thead><tr><th>NOME</th><th>E-MAIL</th><th>SETOR</th><th>PERFIL</th><th>ACESSO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${state.users.map(u => `<tr><td>${escapeHTML(u.name)}</td><td>${escapeHTML(u.email)}</td><td>${escapeHTML(u.sector)}</td><td>${u.role === 'admin' ? 'Administrador' : 'Colaborador'}</td><td>${u.active ? 'Ativo' : 'Desativado'}</td><td><button class="row-open" data-person="${u.id}" aria-label="Editar ${escapeHTML(u.name)}">Editar ↗</button></td></tr>`).join('')}</tbody></table>`;
     $('#history-list').innerHTML = state.history.map(h => `<article class="history-item"><span class="history-dot">${icon('clock')}</span><div>${escapeHTML(h.action)}<small>${escapeHTML(h.actor)} · ${date(h.created_at)}</small></div></article>`).join('') || '<div class="empty">Nenhuma movimentação registrada.</div>';
