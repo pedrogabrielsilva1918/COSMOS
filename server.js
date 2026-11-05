@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { renderRequestPrint } from './request-print.js';
+import { createClientAddress } from './client-address.js';
 import { defaultSectorDescription } from './sector-descriptions.js';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual, createHash } from 'node:crypto';
@@ -61,17 +62,22 @@ function sectorDescription(body, fallback = '') {
 }
 async function readBody(req) {
   if (!(req.headers['content-type'] || '').startsWith('application/json')) fail(415, 'Envie JSON.');
-  let data = '';
+  // Acumula bytes e decodifica só no final: converter cada bloco em texto corromperia
+  // caracteres multibyte (acentos, emoji) divididos entre dois blocos.
+  const chunks = []; let size = 0;
   for await (const chunk of req) {
-    data += chunk;
-    if (Buffer.byteLength(data) > 24000) fail(413, 'Conteúdo muito grande.');
+    size += chunk.length;
+    if (size > 24000) fail(413, 'Conteúdo muito grande.');
+    chunks.push(chunk);
   }
+  const data = Buffer.concat(chunks).toString('utf8');
   try { const body = JSON.parse(data); if (!body || Array.isArray(body) || typeof body !== 'object') throw Error(); return body; }
   catch { fail(400, 'JSON inválido.'); }
 }
 
-export function createApp({ databasePath = process.env.DATABASE_PATH || join(root, 'data/cosmos.sqlite'), secure = process.env.COOKIE_SECURE === 'true' } = {}) {
+export function createApp({ databasePath = process.env.DATABASE_PATH || join(root, 'data/cosmos.sqlite'), secure = process.env.COOKIE_SECURE === 'true', trustProxy = process.env.TRUST_PROXY === 'true', trustedProxyIps = (process.env.TRUSTED_PROXY_IPS || '').split(',').map(ip => ip.trim()).filter(Boolean) } = {}) {
   if (databasePath !== ':memory:') mkdirSync(dirname(databasePath), { recursive: true });
+  const clientAddress = createClientAddress({ trustProxy, trustedProxyIps });
   const db = new DatabaseSync(databasePath);
   db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS organizations(id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('publica','privada')));
@@ -154,7 +160,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
           let origin; try { origin = new URL(req.headers.origin).host; } catch { fail(403, 'Origem não permitida.'); }
           if (origin !== req.headers.host) fail(403, 'Origem não permitida.');
         }
-        const key = `${req.socket.remoteAddress}:${['/api/login', '/api/register', '/api/account/password'].includes(path) ? 'auth' : 'write'}`;
+        const key = `${clientAddress(req)}:${['/api/login', '/api/register', '/api/account/password'].includes(path) ? 'auth' : 'write'}`;
         const entry = rate.get(key) || { count: 0, until: Date.now() + 600000 };
         if (entry.until < Date.now()) { entry.count = 0; entry.until = Date.now() + 600000; }
         entry.count++; rate.set(key, entry);
@@ -401,6 +407,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         if (!request || (user.role !== 'admin' && request.user_id !== user.id)) fail(404, 'Solicitação não encontrada.');
         if (req.method === 'GET') {
           const rawBefore = url.searchParams.get('before');
+          if (rawBefore !== null && !/^[1-9]\d*$/.test(rawBefore)) fail(400, 'Cursor de comentários inválido.');
           const before = rawBefore === null ? Number.MAX_SAFE_INTEGER : Number(rawBefore);
           if (!Number.isSafeInteger(before) || before <= 0) fail(400, 'Cursor de comentários inválido.');
           const rows = db.prepare('SELECT c.id,c.content,c.created_at,u.name AS author FROM request_comments c JOIN users u ON u.id=c.user_id WHERE c.request_id=? AND c.id<? ORDER BY c.id DESC LIMIT 51').all(requestId, before);
