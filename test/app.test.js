@@ -732,3 +732,55 @@ test('movimentações por pedido: migração, persistência, paginação e isola
   await stop();await start();
   assert.deepEqual((await call(path,undefined,author.cookie)).data,first);
 });
+
+test('filtros de setor e prioridade: combinações, setores antigos e exportação autorizada', async t => {
+  const { brazilDay } = await import('../server.js');
+  const app=createApp({databasePath:':memory:'}); app.listen(0,'127.0.0.1');await once(app,'listening');
+  t.after(()=>new Promise(resolve=>app.close(resolve)));
+  const base=`http://127.0.0.1:${app.address().port}`;
+  async function call(path,body,cookie='') {const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
+  const password='Senha-filtros-2026';
+  const admin=await call('/api/register',{name:'Admin',organization:'Empresa',type:'privada',email:'filtro@empresa.com',password});
+  const other=await call('/api/register',{name:'Outra',organization:'Outra',type:'publica',email:'filtro@outra.com',password});
+  assert.equal((await call('/api/sectors',{name:'Arquivo de teste',description:'Setor para consulta de pedidos antigos'},admin.cookie)).status,201);
+  const sectors=(await call('/api/workspace',undefined,admin.cookie)).data.sectors;
+  const first=sectors[0].id, second=sectors[1].id;
+  const otherSector=(await call('/api/workspace',undefined,other.cookie)).data.sectors[0].id;
+  await call('/api/users',{name:'Autor',email:'filtro-autor@empresa.com',password,role:'colaborador',sector_id:first},admin.cookie);
+  await call('/api/users',{name:'Colega',email:'filtro-colega@empresa.com',password,role:'colaborador',sector_id:first},admin.cookie);
+  const author=await call('/api/login',{email:'filtro-autor@empresa.com',password});
+  const colleague=await call('/api/login',{email:'filtro-colega@empresa.com',password});
+  const titles=['Urgente do primeiro setor','Alta do primeiro setor','Normal do primeiro setor','Urgente do segundo setor','Arquivo do segundo setor','Pedido do colega','Pedido externo'];
+  const ids=[];
+  for(const [i,priority,sector_id,cookie] of [[0,'urgente',first,author.cookie],[1,'alta',first,author.cookie],[2,'normal',first,author.cookie],[3,'urgente',second,author.cookie],[4,'normal',second,author.cookie],[5,'urgente',first,colleague.cookie],[6,'urgente',otherSector,other.cookie]]) {
+    const r=await call('/api/requests',{title:titles[i],description:'Filtro combinado',priority,sector_id},cookie);assert.equal(r.status,201);ids.push(r.data.id);
+  }
+  const yesterday=new Date(Date.parse(brazilDay()+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+  await call(`/api/requests/${ids[0]}/deadline`,{due_date:yesterday},admin.cookie);
+  await call(`/api/requests/${ids[0]}/assignee`,{assigned_to:admin.data.id},admin.cookie);
+  await call(`/api/requests/${ids[4]}/decision`,{status:'aprovada',decision:'Autorizado'},admin.cookie);
+  async function csv(query,cookie=admin.cookie) {const r=await fetch(base+'/api/requests/export.csv?'+query,{headers:{cookie}});assert.equal(r.status,200);return r.text();}
+  function containsOnly(text,indexes) {for(let i=0;i<titles.length;i++) assert.equal(text.includes('"'+titles[i]+'"'),indexes.includes(i),titles[i]);}
+  containsOnly(await csv('sector_id='+first),[0,1,2,5]);
+  containsOnly(await csv('priority=urgente'),[0,3,5]);
+  containsOnly(await csv(`sector_id=${first}&priority=urgente&status=pendente&deadline=overdue&assignment=mine&q=primeiro`),[0]);
+  containsOnly(await csv(`sector_id=${first}&priority=alta`),[1]);
+  containsOnly(await csv(`sector_id=${second}&priority=normal&status=aprovada`),[4]);
+  containsOnly(await csv(`sector_id=${second}&priority=alta`),[]);
+  containsOnly(await csv('sector_id=&priority='),[0,1,2,3,4,5]);
+  containsOnly(await csv(`sector_id=${first}&priority=urgente`,author.cookie),[0]);
+  containsOnly(await csv(`sector_id=${first}&priority=urgente`,colleague.cookie),[5]);
+  const user=(await call('/api/workspace',undefined,admin.cookie)).data.users.find(u=>u.email==='filtro-autor@empresa.com');
+  await call(`/api/users/${user.id}`,{name:user.name,role:'colaborador',active:true,sector_id:second},admin.cookie);
+  containsOnly(await csv('sector_id='+first,author.cookie),[0,1,2]); // usa destino do pedido, não o cadastro atual
+  await call(`/api/requests/${ids[3]}/decision`,{status:'aprovada',decision:'Autorizado'},admin.cookie);
+  // Segundo setor só pode ser desativado depois de transferir a pessoa ativa.
+  await call(`/api/users/${user.id}`,{name:user.name,role:'colaborador',active:true,sector_id:first},admin.cookie);
+  const secondInfo=sectors.find(s=>s.id===second);
+  assert.equal((await call(`/api/sectors/${second}`,{name:secondInfo.name,description:secondInfo.description,active:false},admin.cookie)).status,200);
+  containsOnly(await csv(`sector_id=${second}&priority=normal`),[4]);
+  for(const query of ['priority=emergencia','priority=URGENTE','sector_id=0','sector_id=-1','sector_id=1.2','sector_id=1e0','sector_id=01','sector_id=9007199254740992','sector_id=999999',`sector_id=${otherSector}`]) assert.equal((await call('/api/requests/export.csv?'+query,undefined,admin.cookie)).status,400,query);
+  assert.equal((await call(`/api/requests/export.csv?sector_id=${first}`,undefined,other.cookie)).status,400);
+  assert.equal((await call('/api/requests/export.csv?priority=alta')).status,401);
+  containsOnly(await csv(`sector_id=${otherSector}&priority=urgente`,other.cookie),[6]);
+});

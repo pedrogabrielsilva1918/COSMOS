@@ -95,6 +95,14 @@ O solicitante vê somente o histórico dos próprios pedidos; administradores po
 
 A API `GET /api/requests/:id/history?before=ID` retorna `history` e `nextBefore`, com as mesmas restrições de acesso do pedido. Ela não altera os dados.
 
+## Filtros das solicitações
+
+Em **Solicitações**, combine busca por título/protocolo, situação, prazo, setor e prioridade. Administradores também podem usar o responsável. O contador indica quantos pedidos estão sendo exibidos dentre os permitidos à sua conta. **Limpar filtros** restaura a lista completa permitida ao perfil.
+
+O setor é o destino registrado no pedido, não o setor atual do solicitante. Setores desativados continuam disponíveis no filtro para consultar pedidos antigos. Os atalhos **Minha fila** e **Pendentes vencidas** limpam os demais filtros para mostrar toda a fila correspondente. Ao sair da conta, os filtros são limpos.
+
+A exportação CSV aplica todos os filtros selecionados. Os parâmetros opcionais `sector_id=ID` e `priority=normal|alta|urgente` são validados no servidor e mantêm o isolamento entre organizações e a restrição de colaboradores aos próprios pedidos. Nenhuma migração do banco é necessária.
+
 ## Fila de análise
 
 Administradores têm o atalho **Minha fila** na página inicial. Ele abre os pedidos pendentes atribuídos à conta conectada. O contador e a lista usam os dados carregados no workspace; atualize a página para buscar alterações feitas por outras pessoas.
@@ -214,7 +222,7 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/users` | Administrador |
 | POST | `/api/users/:id` | Administrador da mesma organização: edita nome, setor, perfil e acesso |
 | POST | `/api/requests` | Autenticado |
-| GET | `/api/requests/export.csv?q=busca&status=pendente&deadline=overdue&assignment=mine` | Autenticado; mesmas permissões da lista; filtros opcionais |
+| GET | `/api/requests/export.csv?q=busca&status=pendente&deadline=overdue&assignment=mine&sector_id=1&priority=alta` | Autenticado; mesmas permissões da lista; filtros opcionais |
 | GET | `/api/requests/:id/comments?before=ID` | Autor ou administrador da mesma organização; páginas de até 50 mensagens |
 | POST | `/api/requests/:id/comments` | Autor ou administrador da mesma organização; JSON com `content` |
 | POST | `/api/requests/:id/assignee` | Administrador; JSON com `assigned_to` (ID numérico ou null); apenas pendentes da mesma organização |

@@ -18,7 +18,10 @@ async function api(path, body) {
   return data;
 }
 function notify(message) { clearTimeout(noticeTimer); $('#notice').textContent = message; $('#notice').hidden = false; noticeTimer = setTimeout(() => { $('#notice').hidden = true; }, 6000); }
-function showAuth() { currentView = 'dashboard'; $('#request-search').value = ''; $('#status-filter').value = ''; $('#deadline-filter').value = ''; $('#assignment-filter').value = ''; $('#workspace').hidden = true; $('#auth').hidden = false; }
+function clearRequestFilters() {
+  for (const id of ['request-search', 'status-filter', 'deadline-filter', 'assignment-filter', 'sector-filter', 'priority-filter']) $(`#${id}`).value = '';
+}
+function showAuth() { currentView = 'dashboard'; clearRequestFilters(); $('#workspace').hidden = true; $('#auth').hidden = false; }
 function authMode(value) {
   registering = value;
   $('#registration-fields').hidden = !value;
@@ -83,7 +86,7 @@ function setView(view) {
 }
 for (const button of document.querySelectorAll('[data-view]')) button.onclick = () => setView(button.dataset.view);
 $('#see-all').onclick = () => setView('requests');
-$('#my-review-queue').onclick = () => { $('#request-search').value = ''; $('#status-filter').value = 'pendente'; $('#deadline-filter').value = ''; $('#assignment-filter').value = 'mine'; renderRequests(); setView('requests'); };
+$('#my-review-queue').onclick = () => { clearRequestFilters(); $('#status-filter').value = 'pendente'; $('#assignment-filter').value = 'mine'; renderRequests(); setView('requests'); };
 $('#sidebar-new').onclick = () => requestForm();
 $('#hero-new').onclick = () => requestForm();
 $('#shortcut-requests').onclick = () => setView('requests');
@@ -100,15 +103,20 @@ function renderRequests() {
   const search = $('#request-search').value.trim().toLocaleLowerCase('pt-BR'); const status = $('#status-filter').value;
   const overdueOnly = $('#deadline-filter').value === 'overdue';
   const assignment = state.user.role === 'admin' ? $('#assignment-filter').value : '';
-  $('#all-requests').innerHTML = table(state.requests.filter(r => (!status || r.status === status) && (!overdueOnly || r.is_overdue) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === state.user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))) && `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(search)));
+  const sector = $('#sector-filter').value, priority = $('#priority-filter').value;
+  const filtered = state.requests.filter(r => (!sector || r.sector_id === Number(sector)) && (!priority || r.priority === priority) && (!status || r.status === status) && (!overdueOnly || r.is_overdue) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === state.user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))) && `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(search));
+  $('#all-requests').innerHTML = table(filtered);
+  $('#request-results').textContent = `${filtered.length} de ${state.requests.length} ${state.requests.length === 1 ? 'solicitação' : 'solicitações'}`;
 }
 $('#request-search').oninput = renderRequests; $('#status-filter').onchange = renderRequests;
 $('#deadline-filter').onchange = renderRequests;
+$('#sector-filter').onchange = renderRequests; $('#priority-filter').onchange = renderRequests;
+$('#clear-request-filters').onclick = () => { clearRequestFilters(); renderRequests(); };
 $('#assignment-filter').onchange = () => { if ($('#assignment-filter').value) $('#status-filter').value = 'pendente'; renderRequests(); };
-$('#overdue-alert').onclick = () => { $('#request-search').value = ''; $('#status-filter').value = 'pendente'; $('#deadline-filter').value = 'overdue'; $('#assignment-filter').value = ''; renderRequests(); setView('requests'); };
+$('#overdue-alert').onclick = () => { clearRequestFilters(); $('#status-filter').value = 'pendente'; $('#deadline-filter').value = 'overdue'; renderRequests(); setView('requests'); };
 $('#export-requests').onclick = async () => {
   const button = $('#export-requests'); button.disabled = true; button.textContent = 'Preparando…';
-  const params = new URLSearchParams({ q: $('#request-search').value.trim(), status: $('#status-filter').value, deadline: $('#deadline-filter').value, assignment: $('#assignment-filter').value });
+  const params = new URLSearchParams({ q: $('#request-search').value.trim(), status: $('#status-filter').value, deadline: $('#deadline-filter').value, assignment: $('#assignment-filter').value, sector_id: $('#sector-filter').value, priority: $('#priority-filter').value });
   try {
     const response = await fetch(`/api/requests/export.csv?${params}`);
     if (!response.ok) {
@@ -143,6 +151,9 @@ async function refresh() {
   $('#overdue-alert').hidden = overdueCount === 0;
   $('#overdue-alert').innerHTML = `${icon('clock')}<span><strong>${overdueCount} ${overdueCount === 1 ? 'solicitação com prazo vencido' : 'solicitações com prazo vencido'}</strong><small>Veja os pedidos pendentes que precisam de atenção.</small></span>${icon('arrow')}`;
   $('#metrics').innerHTML = metrics.map(([label, value, subtitle, symbol]) => `<article class="metric"><span class="metric-symbol">${icon(symbol)}</span><div class="metric-content"><span class="metric-label">${label}</span><strong>${value}</strong><small>${subtitle}</small></div></article>`).join('');
+  const selectedSector = $('#sector-filter').value;
+  $('#sector-filter').innerHTML = '<option value="">Todos os setores</option>' + state.sectors.map(s => `<option value="${s.id}">${escapeHTML(s.name)}${s.active ? '' : ' (desativado)'}</option>`).join('');
+  $('#sector-filter').value = state.sectors.some(s => String(s.id) === selectedSector) ? selectedSector : '';
   $('#recent-requests').innerHTML = table(state.requests.slice(0, 5)); renderRequests();
   $('#sector-grid').innerHTML = state.sectors.map(s => `<article class="sector-card"><span class="sector-symbol">${icon('sectors')}</span><h2>${escapeHTML(s.name)}</h2><p class="sector-description">${escapeHTML(s.description || 'Descrição não informada.')}</p><p class="sector-meta">${s.active ? 'Ativo' : 'Desativado'}${admin ? ' · ' + state.users.filter(u => u.sector_id === s.id && u.active).length + ' pessoa(s) ativa(s)' : ''}</p>${admin ? `<button type="button" class="row-open sector-edit" data-sector="${s.id}" aria-label="Editar setor ${escapeHTML(s.name)}">Editar ↗</button>` : ''}</article>`).join('');
   $('#people-table').innerHTML = `<table class="data-table"><thead><tr><th>NOME</th><th>E-MAIL</th><th>SETOR</th><th>PERFIL</th><th>ACESSO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${state.users.map(u => `<tr><td>${escapeHTML(u.name)}</td><td>${escapeHTML(u.email)}</td><td>${escapeHTML(u.sector)}</td><td>${u.role === 'admin' ? 'Administrador' : 'Colaborador'}</td><td>${u.active ? 'Ativo' : 'Desativado'}</td><td><button class="row-open" data-person="${u.id}" aria-label="Editar ${escapeHTML(u.name)}">Editar ↗</button></td></tr>`).join('')}</tbody></table>`;

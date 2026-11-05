@@ -51,3 +51,5 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:28px;width:580px;
 @media(max-width:760px){.requests-heading{flex-wrap:wrap}.section-actions{justify-content:flex-start;gap:14px}.section-actions .secondary{font-size:11px}.filters .search-label{min-width:0}.filters #assignment-filter{min-width:0}}
 
 .request-history{border-top:1px solid var(--line);margin-top:24px;padding-top:20px}.request-history .history-item>div{min-width:0;overflow-wrap:anywhere;white-space:pre-line}.request-history .section-heading{gap:12px;flex-wrap:wrap}
+
+.filters>label{min-width:0}.filters select{width:100%;text-overflow:ellipsis}.filters #clear-request-filters{white-space:nowrap;padding:10px 12px}#request-results{margin:0 0 12px}
