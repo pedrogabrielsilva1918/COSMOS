@@ -14,11 +14,11 @@ O botão **Atualizar dados** no topo consulta novamente os dados permitidos à c
 
 A atualização preserva a página aberta e os filtros, desde que o setor selecionado continue disponível. Indicadores, listas, responsáveis e histórico geral são atualizados juntos. Comentários e movimentações dentro de um pedido têm seus próprios botões **Atualizar**. Não há atualização automática em segundo plano. Falhas de rede mantêm os dados anteriores e mostram uma mensagem; sessão expirada volta à entrada. Respostas de consultas anteriores não substituem uma atualização mais recente nem reabrem uma sessão encerrada.
 
-## Visual Conexão Coral
+## Visual Horizonte
 
-A interface usa fundo claro, coral e verde-água, com ícones vetoriais locais e tipografia mais legível. A página inicial tem atalhos para solicitações, setores e o guia **Como funciona**, com orientações conforme o perfil de acesso. O nome da saudação e os indicadores continuam usando os dados da conta conectada.
+O COSMOS usa uma base clara com menu azul profundo, ações em verde e detalhes em coral. A página inicial destaca a saudação, indicadores, atalhos, solicitações recentes e pedidos por setor. A ilustração vetorial e os estilos são locais, sem fontes ou imagens externas.
 
-No celular, os pedidos aparecem em cartões para consultar os detalhes sem rolagem lateral. As tabelas administrativas continuam disponíveis com rolagem quando necessário. A interface respeita a preferência do dispositivo por movimento reduzido. Nenhuma alteração no banco é necessária para este redesign.
+O tema está em `public/horizonte.css`, aplicado após os estilos estruturais. A entrada, tabelas, filtros, setores e janelas seguem a mesma identidade. No celular, o menu fica compacto e os pedidos aparecem em cartões; o resumo por setor também se adapta à largura. Foco de teclado e preferência por movimento reduzido são mantidos. Não há migração do banco nem alteração nas operações do sistema.
 
 ## O que está disponível
 
