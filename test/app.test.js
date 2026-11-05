@@ -684,3 +684,51 @@ test('fila de análise: filtros CSV, combinação com prazo e restrição ao adm
   const ws=(await call('/api/workspace',undefined,a.cookie)).data;
   assert.equal(ws.requests.find(r=>r.id===ids[4]).status,'aprovada');assert.equal(ws.requests.find(r=>r.id===ids[0]).assigned_to,a.data.id);
 });
+
+test('movimentações por pedido: migração, persistência, paginação e isolamento', async t => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const dir = mkdtempSync(join(tmpdir(), 'cosmos-history-')); const databasePath = join(dir, 'test.sqlite');
+  let app; let base;
+  async function start() { app=createApp({databasePath}); app.listen(0,'127.0.0.1'); await once(app,'listening'); base=`http://127.0.0.1:${app.address().port}`; }
+  async function stop() { await new Promise(resolve=>app.close(resolve)); }
+  t.after(async()=>{if(app?.listening) await stop();rmSync(dir,{recursive:true,force:true});});
+  async function call(path,body,cookie='') { const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]}; }
+  await start();
+  const password='Teste-historico-2026';
+  const a=await call('/api/register',{name:'Admin',organization:'Uma',type:'privada',email:'hist@uma.com',password});
+  const b=await call('/api/register',{name:'Outra',organization:'Outra',type:'publica',email:'hist@outra.com',password});
+  const sector=(await call('/api/workspace',undefined,a.cookie)).data.sectors[0].id;
+  await call('/api/users',{name:'Autor',email:'autor@uma.com',password,role:'colaborador',sector_id:sector},a.cookie);
+  await call('/api/users',{name:'Colega',email:'colega@uma.com',password,role:'colaborador',sector_id:sector},a.cookie);
+  const author=await call('/api/login',{email:'autor@uma.com',password}); const colleague=await call('/api/login',{email:'colega@uma.com',password});
+  const body={title:'Pedido histórico',description:'Teste',priority:'normal',sector_id:sector};
+  const old=await call('/api/requests',body,author.cookie);
+  await stop();
+  const db=new DatabaseSync(databasePath);db.exec('DROP INDEX audit_request; ALTER TABLE audit DROP COLUMN request_id');db.close();
+  await start();
+  assert.deepEqual((await call(`/api/requests/${old.data.id}/history`,undefined,author.cookie)).data.history,[]);
+  assert.ok((await call('/api/workspace',undefined,a.cookie)).data.history.some(h=>h.action.includes('Pedido histórico')));
+  const created=await call('/api/requests',body,author.cookie);const id=created.data.id;const path=`/api/requests/${id}/history`;
+  assert.equal((await call(path)).status,401);
+  assert.equal((await call(path,undefined,colleague.cookie)).status,404);
+  assert.equal((await call(path,undefined,b.cookie)).status,404);
+  assert.equal((await call('/api/requests/99999/history',undefined,a.cookie)).status,404);
+  for(const cursor of ['0','-1','abc','1.5','9007199254740992','']) assert.equal((await call(path+'?before='+cursor,undefined,a.cookie)).status,400);
+  await call(`/api/requests/${id}/deadline`,{due_date:'2026-12-01'},a.cookie);
+  await call(`/api/requests/${id}/assignee`,{assigned_to:a.data.id},a.cookie);
+  await call(`/api/requests/${id}/assignee`,{assigned_to:a.data.id},a.cookie); // no-op não duplica ação
+  await call(`/api/requests/${id}/deadline`,{due_date:'2026-12-01'},a.cookie);
+  await call(`/api/requests/${id}/deadline`,{due_date:'inválido'},a.cookie); // falha não gera ação
+  for(let i=0;i<51;i++) assert.equal((await call(`/api/requests/${id}/comments`,{content:'Mensagem '+i},author.cookie)).status,201);
+  await call(`/api/requests/${id}/decision`,{status:'aprovada',decision:'De acordo'},a.cookie);
+  const first=(await call(path,undefined,author.cookie)).data;
+  assert.equal(first.history.length,50);assert.ok(first.nextBefore);assert.match(first.history[0].action,/aprovada/);
+  const second=(await call(path+'?before='+first.nextBefore,undefined,a.cookie)).data;
+  assert.equal(second.history.length,5);assert.equal(second.nextBefore,null);
+  const all=[...first.history,...second.history];assert.equal(new Set(all.map(h=>h.id)).size,55);
+  assert.match(all.at(-1).action,/criada/);assert.equal(all.at(-1).actor,'Autor');
+  assert.equal(all.filter(h=>h.action.startsWith('Prazo')).length,1);assert.equal(all.filter(h=>h.action.startsWith('Responsável')).length,1);
+  for(let i=1;i<all.length;i++) assert.ok(all[i-1].id>all[i].id);
+  await stop();await start();
+  assert.deepEqual((await call(path,undefined,author.cookie)).data,first);
+});

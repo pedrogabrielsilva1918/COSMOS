@@ -87,6 +87,14 @@ As opções `--port` e `--host` têm prioridade sobre `PORT` e `HOST`; sem opç�
 
 Há um `.env.example` como referência. Variáveis podem ser definidas no ambiente ou copiadas para `.env` e carregadas com `node --env-file=.env server.js`. O arquivo `.env` não é carregado automaticamente por `npm start` e não deve ser enviado ao Git.
 
+## Movimentações por solicitação
+
+Abra um pedido e consulte **Movimentações**, abaixo dos comentários. A lista mostra as novas ações de criação, prazo, responsável, comentário e decisão, com autor e data, da mais recente para a mais antiga. Use **Atualizar** após uma nova ação ou **Carregar movimentações anteriores** para consultar páginas de 50 registros.
+
+O solicitante vê somente o histórico dos próprios pedidos; administradores podem consultar os da mesma organização. A migração acrescenta um vínculo opcional ao registro de auditoria e um índice. As ações antigas continuam no histórico geral, mas não são associadas automaticamente a pedidos a partir de seus textos. Por isso, pedidos antigos podem apresentar uma lista vazia até que uma nova ação seja registrada. Faça backup do arquivo SQLite com o servidor parado antes de atualizar, como nas demais migrações.
+
+A API `GET /api/requests/:id/history?before=ID` retorna `history` e `nextBefore`, com as mesmas restrições de acesso do pedido. Ela não altera os dados.
+
 ## Fila de análise
 
 Administradores têm o atalho **Minha fila** na página inicial. Ele abre os pedidos pendentes atribuídos à conta conectada. O contador e a lista usam os dados carregados no workspace; atualize a página para buscar alterações feitas por outras pessoas.

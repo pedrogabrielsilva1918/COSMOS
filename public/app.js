@@ -188,6 +188,28 @@ function editUserForm(id) {
   const self = id === state.user.id;
   formModal('Editar pessoa', `<p class="detail-meta">${escapeHTML(person.email)}</p><label>Nome completo<input name="name" required maxlength="120" value="${escapeHTML(person.name)}"></label><label>Setor<select name="sector_id" required>${state.sectors.filter(s => s.active || s.id === person.sector_id).map(s => `<option value="${s.id}" ${s.id === person.sector_id ? 'selected' : ''}>${escapeHTML(s.name)}${s.active ? '' : ' (desativado)'}</option>`).join('')}</select></label><label>Perfil de acesso<select name="role" ${self ? 'disabled' : ''}><option value="colaborador" ${person.role === 'colaborador' ? 'selected' : ''}>Colaborador</option><option value="admin" ${person.role === 'admin' ? 'selected' : ''}>Administrador</option></select></label><label>Acesso ao COSMOS<select name="active" ${self ? 'disabled' : ''}><option value="true" ${person.active ? 'selected' : ''}>Ativo</option><option value="false" ${!person.active ? 'selected' : ''}>Desativado</option></select></label><p class="hint">${self ? 'Outro administrador deve alterar seu perfil ou desativar seu acesso.' : 'Desativar bloqueia novos logins e encerra as sessões. Alterar o perfil também exige novo login. Solicitações e histórico são preservados. Reativar não recupera sessões anteriores.'}</p>`, `/users/${id}`, data => ({ name: data.name, sector_id: Number(data.sector_id), role: self ? person.role : data.role, active: self ? Boolean(person.active) : data.active === 'true' }), 'Pessoa atualizada.');
 }
+function mountRequestHistory(id) {
+  const section = document.createElement('section'); section.className = 'request-history';
+  section.innerHTML = '<div class="section-heading"><h3>Movimentações</h3><button type="button" class="text-button" data-history-reload>Atualizar ↻</button></div><p class="hint">Da mais recente para a mais antiga. Inclui ações registradas após a atualização que habilitou este histórico por pedido.</p><div data-history-list aria-live="polite"></div><button type="button" class="secondary" data-history-older hidden>Carregar movimentações anteriores</button><p class="error" data-history-error role="alert"></p>';
+  $('#modal-body').append(section);
+  const list = section.querySelector('[data-history-list]'), older = section.querySelector('[data-history-older]'), reload = section.querySelector('[data-history-reload]'), error = section.querySelector('[data-history-error]');
+  let nextBefore = null, loading = false;
+  async function load(before = null) {
+    if (loading) return;
+    loading = true; older.disabled = true; reload.disabled = true; error.textContent = '';
+    try {
+      const data = await api(`/requests/${id}/history${before === null ? '' : `?before=${before}`}`);
+      if (!section.isConnected) return;
+      const html = data.history.map(h => `<article class="history-item"><span class="history-dot">${icon('clock')}</span><div>${escapeHTML(h.action)}<small>${escapeHTML(h.actor)} · ${date(h.created_at)}</small></div></article>`).join('');
+      if (before === null) list.innerHTML = html || '<p class="hint">Nenhuma movimentação registrada nesta versão para este pedido.</p>';
+      else list.insertAdjacentHTML('beforeend', html);
+      nextBefore = data.nextBefore; older.hidden = nextBefore === null;
+    } catch (e) { if (section.isConnected) error.textContent = e.message; }
+    finally { loading = false; older.disabled = false; reload.disabled = false; }
+  }
+  older.onclick = () => load(nextBefore); reload.onclick = () => load();
+  load();
+}
 function mountComments(id) {
   const section = document.createElement('section'); section.className = 'request-comments';
   section.innerHTML = '<div class="section-heading"><h3>Comentários</h3><button type="button" class="text-button" data-reload>Atualizar ↻</button></div><p class="hint">Visíveis ao solicitante e aos administradores. Você também pode comentar após a decisão.</p><button type="button" class="secondary" data-older hidden>Carregar anteriores</button><div data-comment-list aria-live="polite"></div><p class="error" data-load-error role="alert"></p><form data-comment-form><label>Adicionar comentário<textarea name="content" required maxlength="2000" placeholder="Registre um esclarecimento ou uma atualização."></textarea></label><p class="error" data-send-error role="alert"></p><div class="form-actions"><button class="primary" type="submit">Enviar comentário ↗</button></div></form>';
@@ -243,6 +265,7 @@ function showRequest(id) {
   if ($('#edit-deadline')) $('#edit-deadline').onclick = () => deadlineForm(r);
   if ($('#edit-assignee')) $('#edit-assignee').onclick = () => assigneeForm(r);
   mountComments(id);
+  mountRequestHistory(id);
   if (canDecide) $('#decision-form').onsubmit = async event => {
     event.preventDefault(); const buttons = event.target.querySelectorAll('button'); buttons.forEach(b => b.disabled = true);
     try { await api(`/requests/${id}/decision`, { decision: new FormData(event.target).get('decision'), status: event.submitter.value }); $('#modal').close(); await refresh(); notify('Decisão registrada.'); }
