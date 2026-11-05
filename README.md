@@ -183,6 +183,16 @@ Um administrador não pode desativar o próprio acesso nem reduzir o próprio pe
 
 A atualização adiciona automaticamente a coluna `active` ao banco existente e mantém as contas atuais ativas. Pare o servidor e faça backup do diretório `data/` antes de atualizar. A migração é aditiva; não apaga cadastros, pedidos ou sessões.
 
+## Limite de tentativas atrás de proxy
+
+O padrão `TRUST_PROXY=false` usa o IP da conexão e ignora `X-Forwarded-For`. Mantenha esse padrão no Codespace enquanto a configuração do proxy de entrada não for conhecida. Quando vários usuários chegam pelo mesmo proxy, eles podem compartilhar o contador nesse modo.
+
+Em uma infraestrutura controlada, defina `TRUST_PROXY=true` e `TRUSTED_PROXY_IPS` com os IPs individuais dos proxies confiáveis, separados por vírgula. Não são aceitos curingas ou intervalos CIDR. A aplicação recusa iniciar nesse modo se a lista estiver vazia ou contiver IP inválido. O proxy deve sobrescrever o cabeçalho ou acrescentar o IP da conexão recebida, e não apenas repassar um cabeçalho informado pelo cliente.
+
+Somente conexões originadas de um IP cadastrado podem usar o cabeçalho. A cadeia é percorrida da direita para a esquerda, parando no primeiro IP que não é um proxy confiável. Valores anteriores a esse ponto não definem o contador. Cabeçalhos inválidos ou com mais de 32 endereços usam o IP da conexão. Endereços IPv6 equivalentes e IPv4 mapeado são normalizados para evitar contadores diferentes para o mesmo IP.
+
+Não inclua redes de usuários na lista de proxies. Esta configuração não detecta automaticamente a infraestrutura do GitHub Codespaces, não resolve usuários atrás de NAT e não compartilha contadores entre processos. A janela e os limites existentes são mantidos.
+
 ## Testes
 
 Execute `npm run check` para conferir a sintaxe do servidor, da interface, das descrições de setores e dos testes. Execute `npm test` para rodar a suíte de integração. Não é preciso instalar dependências externas.
@@ -243,7 +253,7 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 
 ## Limites desta versão
 
-Este MVP não é uma implantação de produção. Antes de usar dados reais de funcionários ou órgãos, configure HTTPS, persistência e backups com restauração validada, revisão de acesso e política de retenção. O cadastro de organizações está aberto; restrinja-o no ambiente institucional se necessário. A proteção de tentativas é por IP e processo, sem confiar em cabeçalhos de proxy.
+Este MVP não é uma implantação de produção. Antes de usar dados reais de funcionários ou órgãos, configure HTTPS, persistência e backups com restauração validada, revisão de acesso e política de retenção. O cadastro de organizações está aberto; restrinja-o no ambiente institucional se necessário. A proteção de tentativas é por IP e processo; por padrão ignora cabeçalhos de proxy. O modo opcional de proxy exige uma lista explícita de IPs confiáveis, conforme descrito abaixo.
 
 Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail, anexos, edição de solicitações, notificações ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
 

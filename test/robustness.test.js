@@ -57,7 +57,7 @@ test('limite de tentativas ignora X-Forwarded-For por padrão', async t => {
 });
 
 test('com TRUST_PROXY o limite usa o IP do cliente informado pelo proxy', async t => {
-  const { app, base } = await start({ trustProxy: true }); t.after(() => stop(app));
+  const { app, base } = await start({ trustProxy: true, trustedProxyIps: ['127.0.0.1'] }); t.after(() => stop(app));
   const attempt = ip => post(base, '/api/login', { email: 'x@exemplo.com', password: 'qualquer-senha-12' }, { 'X-Forwarded-For': `203.0.113.250, ${ip}` });
   for (let n = 0; n < 20; n++) assert.equal((await attempt('10.0.0.1')).status, 401);
   assert.equal((await attempt('10.0.0.1')).status, 429);
@@ -74,4 +74,45 @@ test('resumo imprimível lida com dados ausentes ou inválidos', () => {
   assert.ok(html.includes('Sem parecer registrado.'));
   assert.ok(!html.includes('<img') && html.includes('&lt;img'));
   assert.ok(!html.includes('<b>Empresa</b>'));
+});
+
+test('modo proxy exige IPs confiáveis e para no primeiro salto não confiável', async () => {
+  const { createClientAddress } = await import('../client-address.js');
+  assert.throws(() => createClientAddress({trustProxy:true}), /TRUSTED_PROXY_IPS/);
+  for (const ips of [['*'], ['0.0.0.0/0'], ['localhost'], ['invalid'], ['127.0.0.1', '']]) assert.throws(() => createClientAddress({trustProxy:true,trustedProxyIps:ips}), /IP/);
+  assert.throws(() => createClientAddress({trustProxy:'true',trustedProxyIps:['127.0.0.1']}), /TRUST_PROXY/);
+  const address=createClientAddress({trustProxy:true,trustedProxyIps:['127.0.0.1','10.0.0.1']});
+  const req=(socket,forwarded)=>({socket:{remoteAddress:socket},headers:forwarded===undefined?{}:{'x-forwarded-for':forwarded}});
+  assert.equal(address(req('192.0.2.1','198.51.100.1')), '192.0.2.1');
+  assert.equal(address(req('127.0.0.1','203.0.113.99, 198.51.100.1')), '198.51.100.1');
+  assert.equal(address(req('127.0.0.1','203.0.113.99, 198.51.100.1, 10.0.0.1')), '198.51.100.1');
+  assert.equal(address(req('::ffff:127.0.0.1','198.51.100.1')), '198.51.100.1');
+  for (const invalid of ['', 'lixo', '198.51.100.1,', ',198.51.100.1', '198.51.100.1, lixo', '198.51.100.01', 'fe80::1%eth0', Array(33).fill('198.51.100.1').join(',')]) assert.equal(address(req('127.0.0.1',invalid)), '127.0.0.1',invalid);
+  assert.equal(address(req('127.0.0.1')), '127.0.0.1');
+  assert.equal(address(req('127.0.0.1','2001:0DB8:0000:0000:0000:0000:0000:0001')), '2001:db8::1');
+  assert.equal(address(req('127.0.0.1','::FFFF:198.51.100.1')), '198.51.100.1');
+  assert.equal(address(req('127.0.0.1','0:0:0:0:0:ffff:c633:6401')), '198.51.100.1');
+});
+
+test('cabeçalhos forjados em conexão não confiável não burlam o limite no modo proxy', async t => {
+  const {app,base}=await start({trustProxy:true,trustedProxyIps:['10.0.0.1']});t.after(()=>stop(app));
+  for(let n=1;n<=20;n++) assert.equal((await post(base,'/api/login',{email:'x@exemplo.com',password},{'X-Forwarded-For':`198.51.100.${n}`})).status,401);
+  assert.equal((await post(base,'/api/login',{email:'x@exemplo.com',password},{'X-Forwarded-For':'198.51.100.99'})).status,429);
+});
+
+test('prefixos falsificados e grafias equivalentes não reiniciam o contador do cliente', async t => {
+  const {app,base}=await start({trustProxy:true,trustedProxyIps:['127.0.0.1']});t.after(()=>stop(app));
+  for(let n=1;n<=20;n++) assert.equal((await post(base,'/api/login',{email:'x@exemplo.com',password},{'X-Forwarded-For':`203.0.113.${n}, 198.51.100.1`})).status,401);
+  assert.equal((await post(base,'/api/login',{email:'x@exemplo.com',password},{'X-Forwarded-For':'203.0.113.99, ::ffff:198.51.100.1'})).status,429);
+  assert.equal((await post(base,'/api/login',{email:'x@exemplo.com',password},{'X-Forwarded-For':'198.51.100.2'})).status,401);
+});
+
+test('limite do corpo usa bytes: 24000 aceitos, excesso rejeitado e JSON inválido bloqueado', async t => {
+  const {app,base}=await start();t.after(()=>stop(app));
+  const body=JSON.stringify({email:'x@exemplo.com',password,padding:'á'.repeat(10000)});
+  const remaining=24000-Buffer.byteLength(body);
+  const send=content=>fetch(base+'/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:content});
+  assert.equal((await send(body+' '.repeat(remaining))).status,401);
+  assert.equal((await send(body+' '.repeat(remaining+1))).status,413);
+  for(const invalid of ['{','null','[]','"texto"']) assert.equal((await send(invalid)).status,400);
 });

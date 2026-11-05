@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { renderRequestPrint } from './request-print.js';
+import { createClientAddress } from './client-address.js';
 import { defaultSectorDescription } from './sector-descriptions.js';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual, createHash } from 'node:crypto';
@@ -74,18 +75,9 @@ async function readBody(req) {
   catch { fail(400, 'JSON inválido.'); }
 }
 
-export function createApp({ databasePath = process.env.DATABASE_PATH || join(root, 'data/cosmos.sqlite'), secure = process.env.COOKIE_SECURE === 'true', trustProxy = process.env.TRUST_PROXY === 'true' } = {}) {
+export function createApp({ databasePath = process.env.DATABASE_PATH || join(root, 'data/cosmos.sqlite'), secure = process.env.COOKIE_SECURE === 'true', trustProxy = process.env.TRUST_PROXY === 'true', trustedProxyIps = (process.env.TRUSTED_PROXY_IPS || '').split(',').map(ip => ip.trim()).filter(Boolean) } = {}) {
   if (databasePath !== ':memory:') mkdirSync(dirname(databasePath), { recursive: true });
-  // Por padrão só o endereço da conexão conta. Com TRUST_PROXY=true (servidor atrás de um proxy
-  // confiável, como Replit ou Nginx), usa o último IP de X-Forwarded-For, que é o que o proxy
-  // acrescentou; valores anteriores da lista podem ser forjados pelo cliente.
-  const clientAddress = req => {
-    if (trustProxy) {
-      const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').map(part => part.trim()).filter(Boolean).at(-1);
-      if (forwarded) return forwarded;
-    }
-    return req.socket.remoteAddress;
-  };
+  const clientAddress = createClientAddress({ trustProxy, trustedProxyIps });
   const db = new DatabaseSync(databasePath);
   db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS organizations(id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('publica','privada')));
