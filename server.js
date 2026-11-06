@@ -40,9 +40,15 @@ async function passwordMatches(password, stored) {
   const [salt, digest] = stored.split(':');
   return timingSafeEqual(Buffer.from(digest, 'hex'), Buffer.from(await scrypt(password, salt, 64)));
 }
+// Nomes dos campos em português para as mensagens de validação.
+const FIELD_LABELS = {
+  email: 'o e-mail', password: 'a senha', name: 'o nome', organization: 'a organização',
+  title: 'o título', description: 'a descrição', decision: 'o parecer', content: 'o comentário',
+  currentPassword: 'a senha atual', newPassword: 'a nova senha',
+};
 function field(body, key, max = 200) {
   const value = typeof body[key] === 'string' ? body[key].trim() : '';
-  if (!value || value.length > max) fail(400, `Preencha ${key} (até ${max} caracteres).`);
+  if (!value || value.length > max) fail(400, `Preencha ${FIELD_LABELS[key] || 'o campo ' + key} (até ${max} caracteres).`);
   return value;
 }
 function credentials(body) {
@@ -149,6 +155,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'same-origin');
+    if (secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     const json = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
     try {
@@ -159,7 +166,12 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'], '/horizonte.css': ['horizonte.css', 'text/css'], '/print.css': ['print.css', 'text/css'], '/print.js': ['print.js', 'text/javascript'], '/request-order.js': ['request-order.js', 'text/javascript'], '/request-search.js': ['request-search.js', 'text/javascript'], '/request-period.js': ['request-period.js', 'text/javascript'], '/sector-overview.js': ['sector-overview.js', 'text/javascript'], '/sector-search.js': ['sector-search.js', 'text/javascript'], '/people-search.js': ['people-search.js', 'text/javascript'] };
         if (!assets[path]) fail(404, 'Página não encontrada.');
         const [file, mime] = assets[path];
-        res.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8` }); return res.end(readFileSync(join(root, 'public', file)));
+        // Revalidação a cada acesso: o navegador reaproveita o arquivo só se ele não mudou.
+        const content = readFileSync(join(root, 'public', file));
+        const etag = `"${hash(content).slice(0, 32)}"`;
+        const headers = { 'Content-Type': `${mime}; charset=utf-8`, 'Cache-Control': 'no-cache', ETag: etag };
+        if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
+        res.writeHead(200, headers); return res.end(content);
       }
       if (!['GET', 'POST'].includes(req.method)) fail(405, 'Método não permitido.');
       if (req.method === 'POST') {
@@ -409,7 +421,10 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
           if (!body.active || target.role !== body.role) db.prepare('DELETE FROM sessions WHERE user_id=?').run(target.id);
           const changes = [];
           if (target.name !== name) changes.push(`nome: ${target.name} → ${name}`);
-          if (target.sector_id !== sec) changes.push(`setor: #${target.sector_id} → #${sec}`);
+          if (target.sector_id !== sec) {
+            const sectorName = id => db.prepare('SELECT name FROM sectors WHERE id=? AND org_id=?').get(id, user.org_id)?.name ?? 'sem setor';
+            changes.push(`setor: ${sectorName(target.sector_id)} (#${target.sector_id}) → ${sectorName(sec)} (#${sec})`);
+          }
           if (target.role !== body.role) changes.push(`perfil: ${target.role} → ${body.role}`);
           if (target.active !== Number(body.active)) changes.push(body.active ? 'acesso reativado' : 'acesso desativado');
           if (changes.length) audit(user, `Pessoa #${target.id} atualizada: ${changes.join('; ')}`);
