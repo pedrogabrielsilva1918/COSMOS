@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Continuar a consulta após editar
+
+Ao editar o próprio pedido, definir o prazo ou alterar o responsável, **Salvar** atualiza os dados e reabre o pedido correspondente. **Voltar ao pedido** descarta as alterações ainda não salvas e retorna aos detalhes. A edição continua sujeita às mesmas permissões e validações.
+
+Se a gravação for concluída, mas a atualização falhar, a mensagem informa que os dados foram salvos e orienta usar **Atualizar dados**. Se o formulário tiver sido fechado ou outro modal aberto durante o processamento, o sistema não reabre o pedido por cima da nova janela. Trocar de conta invalida o retorno pendente. Os demais formulários mantêm Cancelar e o retorno habitual à lista.
+
 ## Janela de solicitação organizada
 
 Ao abrir um pedido, o título, a situação, o solicitante e a data ficam no cabeçalho. **Detalhes** reúne setor, prioridade, prazo, responsável, justificativa e decisão. Administradores elegíveis continuam registrando a decisão nessa aba. Os botões **Alterar** ao lado do prazo e do responsável abrem os mesmos formulários de antes.

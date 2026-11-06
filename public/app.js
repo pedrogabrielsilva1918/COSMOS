@@ -377,13 +377,33 @@ function showGuide() {
   $('#guide-new').onclick = () => { $('#modal').close(); requestForm(); };
 }
 function sectorOptions() { return state.sectors.filter(s => s.active).map(s => `<option value="${s.id}">${escapeHTML(s.name)}</option>`).join(''); }
-function formModal(title, fields, endpoint, convert = data => data, success = 'Cadastro realizado.') {
-  openModal(title, `<form id="modal-form">${fields}<p class="error" id="modal-error" role="alert"></p><div class="form-actions"><button type="button" class="secondary" id="cancel-form">Cancelar</button><button class="primary" type="submit">Salvar ↗</button></div></form>`);
-  $('#cancel-form').onclick = () => $('#modal').close();
+function returnToRequest(id) {
+  if (state?.requests.some(request => request.id === id)) showRequest(id);
+  else notify('Pedido não disponível nesta conta. Atualize os dados.');
+}
+function formModal(title, fields, endpoint, convert = data => data, success = 'Cadastro realizado.', returnRequestId = null) {
+  openModal(title, `<form id="modal-form">${fields}<p class="error" id="modal-error" role="alert"></p><div class="form-actions"><button type="button" class="secondary" id="cancel-form">${returnRequestId ? '← Voltar ao pedido' : 'Cancelar'}</button><button class="primary" type="submit">Salvar ↗</button></div></form>`);
+  $('#cancel-form').onclick = () => { if (returnRequestId) returnToRequest(returnRequestId); else $('#modal').close(); };
   $('#modal-form').onsubmit = async event => {
-    event.preventDefault(); const submit = event.target.querySelector('[type=submit]'); submit.disabled = true; $('#modal-error').textContent = '';
-    try { await api(endpoint, convert(Object.fromEntries(new FormData(event.target)))); $('#modal').close(); await refresh(); notify(success); }
-    catch (error) { const target = $('#modal-error'); if (target) target.textContent = error.message; else notify(error.message); } finally { submit.disabled = false; }
+    event.preventDefault();
+    const form = event.currentTarget, submit = form.querySelector('[type=submit]'), cancel = form.querySelector('#cancel-form'), epoch = workspaceEpoch;
+    submit.disabled = true; cancel.disabled = true; form.querySelector('#modal-error').textContent = '';
+    let saved = false;
+    try {
+      await api(endpoint, convert(Object.fromEntries(new FormData(form)))); saved = true;
+      if (epoch !== workspaceEpoch || !state) return;
+      const returnAfterSave = form.isConnected && $('#modal').open;
+      if (returnAfterSave) $('#modal').close();
+      await refresh();
+      if (epoch !== workspaceEpoch || !state) return;
+      if (returnRequestId && returnAfterSave && !$('#modal').open) returnToRequest(returnRequestId);
+      notify(success);
+    } catch (error) {
+      if (epoch !== workspaceEpoch) return;
+      const message = (saved ? `${success} A atualização dos dados falhou. Use Atualizar dados antes de continuar. ` : '') + error.message;
+      if (form.isConnected && $('#modal').open) form.querySelector('#modal-error').textContent = message;
+      else notify(message);
+    } finally { submit.disabled = false; cancel.disabled = false; }
   };
 }
 function requestForm(template = null) {
@@ -407,7 +427,7 @@ function requestForm(template = null) {
 }
 function editRequestForm(request) {
   if (request.user_id !== state.user.id || request.status !== 'pendente') return;
-  formModal('Editar meu pedido', `<p class="hint">Corrija o título e a justificativa. A edição será registrada nas movimentações. Setor, prioridade, prazo e responsável permanecem como estão.</p><label>Título<input name="title" required maxlength="160" value="${escapeHTML(request.title)}"></label><label>Descrição e justificativa<textarea name="description" required maxlength="5000">${escapeHTML(request.description)}</textarea></label>`, `/requests/${request.id}/edit`, data => ({ ...data, expected: { title: request.title, description: request.description } }), 'Pedido atualizado.');
+  formModal('Editar meu pedido', `<p class="hint">Corrija o título e a justificativa. A edição será registrada nas movimentações. Setor, prioridade, prazo e responsável permanecem como estão.</p><label>Título<input name="title" required maxlength="160" value="${escapeHTML(request.title)}"></label><label>Descrição e justificativa<textarea name="description" required maxlength="5000">${escapeHTML(request.description)}</textarea></label>`, `/requests/${request.id}/edit`, data => ({ ...data, expected: { title: request.title, description: request.description } }), 'Pedido atualizado.', request.id);
 }
 function sectorForm() { formModal('Novo setor', '<label>Nome do setor<input name="name" required maxlength="120" placeholder="Ex.: Recursos Humanos"></label><label>O que este setor faz<textarea name="description" maxlength="300" placeholder="Explique em uma ou duas frases como esta área ajuda a organização."></textarea></label>', '/sectors'); }
 function editSectorForm(id) {
@@ -490,10 +510,10 @@ function assigneeForm(request) {
   const candidates = state.users.filter(user => user.active && user.role === 'admin' && user.id !== request.user_id);
   const unavailable = request.assigned_to && !candidates.some(user => user.id === request.assigned_to);
   const options = `<option value="">Sem responsável</option>${unavailable ? `<option value="${request.assigned_to}" selected>${escapeHTML(request.assignee_name || 'Responsável anterior')} — indisponível; escolha outro</option>` : ''}${candidates.map(user => `<option value="${user.id}" ${user.id === request.assigned_to ? 'selected' : ''}>${escapeHTML(user.name)}</option>`).join('')}`;
-  formModal(`Responsável · COS-${String(request.id).padStart(5, '0')}`, `<label>Administrador responsável<select name="assigned_to">${options}</select></label><p class="hint">Escolha um administrador ativo da organização, diferente do solicitante. A atribuição organiza o acompanhamento; os administradores continuam podendo avaliar pedidos de outras pessoas. Selecione Sem responsável para remover o vínculo.</p>${!candidates.length ? '<p class="hint">Nenhum administrador elegível. Cadastre outro administrador em Pessoas para atribuir este pedido.</p>' : ''}`, `/requests/${request.id}/assignee`, data => ({ assigned_to: data.assigned_to ? Number(data.assigned_to) : null }), 'Responsável atualizado.');
+  formModal(`Responsável · COS-${String(request.id).padStart(5, '0')}`, `<label>Administrador responsável<select name="assigned_to">${options}</select></label><p class="hint">Escolha um administrador ativo da organização, diferente do solicitante. A atribuição organiza o acompanhamento; os administradores continuam podendo avaliar pedidos de outras pessoas. Selecione Sem responsável para remover o vínculo.</p>${!candidates.length ? '<p class="hint">Nenhum administrador elegível. Cadastre outro administrador em Pessoas para atribuir este pedido.</p>' : ''}`, `/requests/${request.id}/assignee`, data => ({ assigned_to: data.assigned_to ? Number(data.assigned_to) : null }), 'Responsável atualizado.', request.id);
 }
 function deadlineForm(request) {
-  formModal(`Prazo · COS-${String(request.id).padStart(5, '0')}`, `<label>Data limite<input name="due_date" type="date" min="1000-01-01" max="9999-12-31" value="${escapeHTML(request.due_date || '')}"></label><p class="hint">Deixe vazio para remover o prazo. O pedido vence após o fim da data escolhida, no horário de Brasília. Datas passadas são aceitas e aparecem como vencidas enquanto o pedido estiver pendente.</p>`, `/requests/${request.id}/deadline`, data => ({ due_date: data.due_date || null }), 'Prazo atualizado.');
+  formModal(`Prazo · COS-${String(request.id).padStart(5, '0')}`, `<label>Data limite<input name="due_date" type="date" min="1000-01-01" max="9999-12-31" value="${escapeHTML(request.due_date || '')}"></label><p class="hint">Deixe vazio para remover o prazo. O pedido vence após o fim da data escolhida, no horário de Brasília. Datas passadas são aceitas e aparecem como vencidas enquanto o pedido estiver pendente.</p>`, `/requests/${request.id}/deadline`, data => ({ due_date: data.due_date || null }), 'Prazo atualizado.', request.id);
 }
 function showRequest(id) {
   const r = state.requests.find(r => r.id === id); if (!r) return;
