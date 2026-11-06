@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { mkdtempSync,rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { createApp } from '../server.js';
+
+test('período do histórico considera dia de Brasília antes da paginação e do CSV',async t=>{
+  const dir=mkdtempSync(join(tmpdir(),'cosmos-history-period-')),databasePath=join(dir,'test.sqlite');
+  const app=createApp({databasePath});app.listen(0,'127.0.0.1');await once(app,'listening');
+  t.after(async()=>{await new Promise(resolve=>app.close(resolve));rmSync(dir,{recursive:true,force:true});});
+  const base=`http://127.0.0.1:${app.address().port}`,password='Historico-periodo-seguro-2026';
+  const register=async(email)=>{const r=await fetch(base+'/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Ana',organization:email,type:'privada',email,password})});return {user:await r.json(),cookie:r.headers.get('set-cookie').split(';')[0]};};
+  const a=await register('periodo-a@example.com'),b=await register('periodo-b@example.com');
+  const workspace=async cookie=>(await fetch(base+'/api/workspace',{headers:{cookie}})).json();
+  const orgA=(await workspace(a.cookie)).organization.id,orgB=(await workspace(b.cookie)).organization.id;
+  const db=new DatabaseSync(databasePath),insert=db.prepare('INSERT INTO audit(org_id,actor_id,action,created_at) VALUES (?,?,?,?)');
+  const fixtures=[['Antes','2026-11-06T02:59:59.999Z'],['Início','2026-11-06T03:00:00.000Z'],['Fim','2026-11-07T02:59:59.999Z'],['Depois','2026-11-07T03:00:00.000Z']];
+  for(const [label,stamp] of fixtures)insert.run(orgA,a.user.id,'Período teste '+label,stamp);
+  for(let i=0;i<55;i++)insert.run(orgA,a.user.id,'Período teste lote '+i,'2026-11-06T12:00:00.000Z');
+  insert.run(orgB,b.user.id,'Período teste outra organização','2026-11-06T12:00:00.000Z');db.close();
+  const get=async(path,cookie=a.cookie)=>fetch(base+path,{headers:{cookie}});
+  const params=new URLSearchParams({q:'periodo teste',from:'2026-11-06',to:'2026-11-06'});
+  const first=await (await get('/api/history?'+params)).json();assert.equal(first.history.length,50);assert.ok(first.nextBefore);
+  params.set('before',first.nextBefore);const older=await (await get('/api/history?'+params)).json();assert.equal(older.history.length,7);assert.equal(older.nextBefore,null);
+  const all=[...first.history,...older.history];assert.equal(new Set(all.map(h=>h.id)).size,57);assert.ok(all.some(h=>h.action.endsWith('Início')));assert.ok(all.some(h=>h.action.endsWith('Fim')));assert.ok(all.every(h=>!h.action.endsWith('Antes')&&!h.action.endsWith('Depois')&&!h.action.includes('outra organização')));
+  params.delete('before');const csv=await (await get('/api/history/export.csv?'+params)).text();const ids=[...csv.matchAll(/^"(\d+)";/gm)].map(m=>Number(m[1]));assert.deepEqual(ids,all.map(h=>h.id));
+  const beforeOnly=await (await get('/api/history?'+new URLSearchParams({q:'periodo teste antes',to:'2026-11-05'}))).json();assert.equal(beforeOnly.history.length,1);
+  const afterOnly=await (await get('/api/history?'+new URLSearchParams({q:'periodo teste depois',from:'2026-11-07'}))).json();assert.equal(afterOnly.history.length,1);
+  const none=await (await get('/api/history?q=periodo&from=2099-01-01')).json();assert.equal(none.history.length,0);
+  for(const invalid of ['from=2026-02-29','to=2026-04-31','from=2026-11-07&to=2026-11-06','from=abc'])for(const path of ['/api/history?','/api/history/export.csv?'])assert.equal((await get(path+invalid)).status,400);
+  assert.equal((await get('/api/history?'+params,'')).status,401);
+});

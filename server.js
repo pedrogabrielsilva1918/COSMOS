@@ -89,6 +89,10 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
   if (databasePath !== ':memory:') mkdirSync(dirname(databasePath), { recursive: true });
   const clientAddress = createClientAddress({ trustProxy, trustedProxyIps });
   const db = new DatabaseSync(databasePath);
+  db.function('cosmos_brazil_day', { deterministic:true }, value => {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? brazilDay(date).replace(/^(\d+)-/,(_,year)=>year.padStart(4,'0')+'-') : null;
+  });
   db.function('cosmos_search_text', { deterministic: true }, value => String(value ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('pt-BR'));
   db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS organizations(id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('publica','privada')));
@@ -291,6 +295,8 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       if (req.method === 'GET' && ['/api/history','/api/history/export.csv'].includes(path)) {
         admin(user);
         const exportHistory = path === '/api/history/export.csv';
+        const from=url.searchParams.get('from')||'', to=url.searchParams.get('to')||'';
+        const invalidPeriod=periodError(from,to); if(invalidPeriod) fail(400,invalidPeriod);
         const rawBefore = url.searchParams.get('before');
         if (exportHistory && rawBefore !== null) fail(400,'A exportação não usa cursor de paginação.');
         if (rawBefore !== null && !/^[1-9]\d*$/.test(rawBefore)) fail(400, 'Cursor de histórico inválido.');
@@ -302,6 +308,8 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const params = [user.org_id];
         let conditions = 'a.org_id=?';
         if (!exportHistory) { conditions += ' AND a.id<?'; params.push(before); }
+        if(from){conditions += ' AND cosmos_brazil_day(a.created_at)>=?';params.push(from);}
+        if(to){conditions += ' AND cosmos_brazil_day(a.created_at)<=?';params.push(to);}
         for (const term of terms) { conditions += " AND instr(cosmos_search_text(a.action || ' ' || u.name),?)>0"; params.push(term); }
         const rows = db.prepare(`SELECT a.id,a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id AND u.org_id=a.org_id WHERE ${conditions} ORDER BY a.id DESC ${exportHistory ? '' : 'LIMIT 51'}`).all(...params);
         if (exportHistory) {
