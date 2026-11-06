@@ -12,6 +12,7 @@ const formatDeadline = value => value ? String(value).split('-').reverse().join(
 const deadlineBadge = request => `<span class="deadline-label ${request.is_overdue ? 'deadline-late' : ''}">${escapeHTML(formatDeadline(request.due_date))}${request.is_overdue ? '<small>Prazo vencido</small>' : ''}</span>`;
 const assigneeBadge = request => `<span class="request-assignee">${escapeHTML(request.assignee_name || 'Não definido')}${request.status === 'pendente' && request.assigned_to && !request.assignee_available ? '<small>Reatribuição necessária</small>' : ''}</span>`;
 let state, currentView = 'dashboard', registering = false, noticeTimer, workspaceEpoch = 0, refreshSequence = 0;
+let notificationGeneration = 0, notificationNextBefore = null, notificationCount = 0, notificationReadThrough = null;
 let historyGeneration = 0, historyNextBefore = null, historyLoadedQuery = '', historyCount = 0;
 async function api(path, body) {
   const epoch = workspaceEpoch, sequence = refreshSequence;
@@ -28,7 +29,7 @@ function clearRequestFilters() {
   $('#request-order').value = 'recent';
   for (const id of ['request-search', 'status-filter', 'deadline-filter', 'assignment-filter', 'sector-filter', 'priority-filter']) $(`#${id}`).value = '';
 }
-function showAuth() { workspaceEpoch++; refreshSequence++; $('#refresh-workspace').disabled = false; $('#refresh-workspace').textContent = 'Atualizar dados ↻'; $('#refresh-workspace').removeAttribute('aria-busy'); $('#workspace-updated').textContent = ''; currentView = 'dashboard'; clearRequestFilters(); clearSectorFilters(); clearPeopleFilters(); resetHistory(); $('#workspace').hidden = true; $('#auth').hidden = false; }
+function showAuth() { workspaceEpoch++; refreshSequence++; $('#refresh-workspace').disabled = false; $('#refresh-workspace').textContent = 'Atualizar dados ↻'; $('#refresh-workspace').removeAttribute('aria-busy'); $('#workspace-updated').textContent = ''; currentView = 'dashboard'; clearRequestFilters(); clearSectorFilters(); clearPeopleFilters(); resetHistory(); resetNotifications(); $('#workspace').hidden = true; $('#auth').hidden = false; }
 function authMode(value) {
   registering = value;
   $('#registration-fields').hidden = !value;
@@ -86,6 +87,7 @@ const viewInfo = {
   requests: ['Solicitações', 'DO PEDIDO À DECISÃO', 'Crie, acompanhe e consulte as solicitações.', '+ Nova solicitação'],
   sectors: ['Setores', 'UMA ESTRUTURA CONECTADA', 'Organize as áreas que fazem sua organização acontecer.', '+ Novo setor'],
   people: ['Pessoas', 'QUEM FAZ ACONTECER', 'Cadastre sua equipe e defina os perfis de acesso.', '+ Nova pessoa'],
+  notifications: ['Notificações', 'ACOMPANHE CADA DECISÃO', 'As decisões dos seus pedidos, em um só lugar.', null],
   history: ['Histórico', 'CADA ETAPA REGISTRADA', 'Consulte e pesquise as ações registradas da sua organização.', null]
 };
 function setView(view) {
@@ -100,6 +102,7 @@ function setView(view) {
   $('#main-action').textContent = action || ''; $('#main-action').hidden = !action || (view === 'sectors' && state.user.role !== 'admin');
   if (changedView) window.scrollTo({ top: 0, behavior: 'auto' });
   if (view === 'history') return loadHistory();
+  if (view === 'notifications') return loadNotifications();
 }
 for (const button of document.querySelectorAll('[data-view]')) button.onclick = () => setView(button.dataset.view);
 $('#see-all').onclick = () => setView('requests');
@@ -116,6 +119,72 @@ function table(requests) {
   if (!requests.length) return '<div class="empty"><strong>Nenhuma solicitação por aqui.</strong>Crie uma solicitação ou ajuste os filtros para começar.</div>';
   return `<table class="data-table request-table"><thead><tr><th>SOLICITAÇÃO</th><th>SETOR</th><th>SITUAÇÃO</th><th>PRIORIDADE</th><th>PRAZO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${requests.map(r => `<tr><td data-label="Solicitação"><span class="request-title">${escapeHTML(r.title)}</span><span class="request-id">COS-${String(r.id).padStart(5, '0')} · ${escapeHTML(r.author)}</span><span class="request-assignee-line">Responsável: ${assigneeBadge(r)}</span></td><td data-label="Setor">${escapeHTML(r.sector)}</td><td data-label="Situação">${pill(r.status)}</td><td data-label="Prioridade"><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase() + r.priority.slice(1))}</span></td><td data-label="Prazo">${deadlineBadge(r)}</td><td data-label="Ações"><button class="row-open" data-request="${r.id}" aria-label="Abrir solicitação ${r.id}">Abrir ↗</button></td></tr>`).join('')}</tbody></table>`;
 }
+function updateNotificationBadge(count) {
+  $('#notification-read-all').disabled = count === 0 || notificationReadThrough === null || $('#notification-filter').value === 'read';
+  $('#notification-count').textContent = count; $('#notification-count').hidden = count === 0;
+}
+function resetNotifications() {
+  notificationGeneration++; notificationNextBefore = null; notificationCount = 0; notificationReadThrough = null;
+  $('#notification-filter').value = 'all';
+  $('#notification-list').replaceChildren(); $('#notification-results').textContent = ''; $('#notification-error').textContent = ''; $('#notification-older').hidden = true; $('#notification-older').disabled = false; updateNotificationBadge(0);
+}
+async function loadNotifications(before = null) {
+  if (!state) return;
+  const generation = ++notificationGeneration, epoch = workspaceEpoch, status = $('#notification-filter').value;
+  $('#notification-older').disabled = true; $('#notification-error').textContent = ''; $('#notification-results').textContent = 'Consultando avisos…';
+  try {
+    const params = new URLSearchParams({ status });
+    if (before !== null) params.set('before',before);
+    const data = await api(`/notifications?${params}`);
+    if (generation !== notificationGeneration || epoch !== workspaceEpoch || !state) return;
+    const html = data.notifications.map(n => `<article class="notification-card ${n.read_at ? '' : 'notification-unread'}"><span class="notification-symbol">${icon('bell')}</span><div class="notification-content"><span class="notification-state">${n.read_at ? 'Lida' : 'Não lida'}</span><h2>${escapeHTML(n.message)}</h2><p>${escapeHTML(n.actor)} · ${date(n.created_at)}</p><div class="notification-actions"><button type="button" class="row-open" data-notification="${n.id}" data-open-request="${n.request_id}">Ver pedido ↗</button>${n.read_at ? '' : `<button type="button" class="text-button" data-notification="${n.id}">Marcar como lida</button>`}</div></div></article>`).join('');
+    if (before === null) $('#notification-list').innerHTML = html || `<div class="empty panel"><strong>${status === 'unread' ? 'Nenhum aviso não lido.' : status === 'read' ? 'Nenhum aviso lido.' : 'Nenhuma notificação por enquanto.'}</strong>${status === 'all' ? 'As novas aprovações e recusas dos seus pedidos aparecerão aqui.' : 'Escolha Todos para consultar os demais avisos.'}</div>`;
+    else $('#notification-list').insertAdjacentHTML('beforeend',html);
+    notificationCount = before === null ? data.notifications.length : notificationCount + data.notifications.length;
+    notificationNextBefore = data.nextBefore; $('#notification-older').hidden = notificationNextBefore === null;
+    if (before === null) notificationReadThrough = data.notifications[0]?.id ?? null;
+    updateNotificationBadge(data.unreadCount); state.notification_unread = data.unreadCount;
+    $('#notification-results').textContent = `${notificationCount} ${notificationCount === 1 ? 'aviso exibido' : 'avisos exibidos'} · ${data.unreadCount} não ${data.unreadCount === 1 ? 'lido' : 'lidos'} no total`;
+  } catch(error) {
+    if (generation === notificationGeneration && epoch === workspaceEpoch) { $('#notification-error').textContent = error.message; $('#notification-results').textContent = notificationCount ? 'Não foi possível atualizar. Os avisos anteriores foram mantidos.' : ''; }
+  } finally { if (generation === notificationGeneration && epoch === workspaceEpoch) $('#notification-older').disabled = false; }
+}
+$('#notification-filter').onchange = () => {
+  notificationNextBefore = null; notificationReadThrough = null; notificationCount = 0;
+  $('#notification-list').replaceChildren(); $('#notification-older').hidden = true;
+  updateNotificationBadge(state?.notification_unread || 0);
+  loadNotifications();
+};
+$('#notification-read-all').onclick = async () => {
+  if (!state || notificationReadThrough === null) return;
+  const epoch = workspaceEpoch, through = notificationReadThrough;
+  const button = $('#notification-read-all'); button.disabled = true; let saved = false;
+  try {
+    const data = await api('/notifications/read-all', { through }); saved = true;
+    if (epoch !== workspaceEpoch || !state) return;
+    state.notification_unread = data.unreadCount; updateNotificationBadge(data.unreadCount);
+    await refresh();
+    if (epoch === workspaceEpoch && state) notify(`${data.changed} aviso(s) marcado(s) como lido(s).`);
+  } catch(error) { if (epoch === workspaceEpoch) notify((saved ? 'Leitura salva, mas a atualização falhou. ' : '') + error.message); }
+  finally { if (epoch === workspaceEpoch && state) updateNotificationBadge(state.notification_unread); }
+};
+$('#notification-older').onclick = () => { if (notificationNextBefore !== null) loadNotifications(notificationNextBefore); };
+$('#notification-list').addEventListener('click', async event => {
+  const button = event.target.closest('[data-notification]'); if (!button) return;
+  const epoch = workspaceEpoch; button.disabled = true; let marked = false;
+  try {
+    const data = await api(`/notifications/${Number(button.dataset.notification)}/read`, {}); marked = true;
+    if (epoch !== workspaceEpoch || !state) return;
+    updateNotificationBadge(data.unreadCount);
+    await refresh();
+    if (epoch !== workspaceEpoch || !state) return;
+    if (button.dataset.openRequest) {
+      const id = Number(button.dataset.openRequest);
+      if (state.requests.some(r => r.id === id)) showRequest(id); else notify('Pedido não disponível nesta conta.');
+    } else notify('Notificação marcada como lida.');
+  } catch(error) { if (epoch === workspaceEpoch) notify((marked ? 'Aviso marcado como lido, mas a atualização falhou. ' : '') + error.message); }
+  finally { button.disabled = false; }
+});
 function historyBusy(busy) {
   $('#history-submit').disabled = busy; $('#history-older').disabled = busy;
   if (busy) $('#history-list').setAttribute('aria-busy', 'true'); else $('#history-list').removeAttribute('aria-busy');
@@ -224,7 +293,7 @@ async function refresh() {
   try {
     const nextState = await api('/workspace');
     if (epoch !== workspaceEpoch || sequence !== refreshSequence) return;
-    state = nextState; $('#auth').hidden = true; $('#workspace').hidden = false;
+    state = nextState; notificationGeneration++; updateNotificationBadge(state.notification_unread); $('#auth').hidden = true; $('#workspace').hidden = false;
     const admin = state.user.role === 'admin';
     if (!admin && ['people', 'history'].includes(currentView)) currentView = 'dashboard';
     if (!admin) $('#assignment-filter').value = '';

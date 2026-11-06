@@ -89,6 +89,9 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
     CREATE TABLE IF NOT EXISTS requests(id INTEGER PRIMARY KEY, org_id INTEGER NOT NULL REFERENCES organizations(id), user_id INTEGER NOT NULL REFERENCES users(id), sector_id INTEGER NOT NULL REFERENCES sectors(id), title TEXT NOT NULL, description TEXT NOT NULL, priority TEXT NOT NULL CHECK(priority IN ('normal','alta','urgente')), status TEXT NOT NULL DEFAULT 'pendente' CHECK(status IN ('pendente','aprovada','recusada')), decision TEXT, decided_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), decided_at TEXT);
     CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, org_id INTEGER NOT NULL REFERENCES organizations(id), actor_id INTEGER NOT NULL REFERENCES users(id), action TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
     CREATE TABLE IF NOT EXISTS request_comments(id INTEGER PRIMARY KEY, request_id INTEGER NOT NULL REFERENCES requests(id), user_id INTEGER NOT NULL REFERENCES users(id), content TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+    CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY, org_id INTEGER NOT NULL REFERENCES organizations(id), user_id INTEGER NOT NULL REFERENCES users(id), request_id INTEGER NOT NULL REFERENCES requests(id), actor_id INTEGER NOT NULL REFERENCES users(id), message TEXT NOT NULL, read_at TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), UNIQUE(user_id,request_id));
+    CREATE INDEX IF NOT EXISTS notifications_user ON notifications(org_id,user_id,id);
+    CREATE INDEX IF NOT EXISTS notifications_unread ON notifications(org_id,user_id) WHERE read_at IS NULL;
     CREATE INDEX IF NOT EXISTS comments_request ON request_comments(request_id,id);
     CREATE INDEX IF NOT EXISTS requests_org ON requests(org_id,user_id);
     CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires);`);
@@ -124,6 +127,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
     db.prepare('DELETE FROM sessions WHERE expires < ?').run(now);
   }, 60000); janitor.unref();
   function transaction(fn) { db.exec('BEGIN IMMEDIATE'); try { const result = fn(); db.exec('COMMIT'); return result; } catch (e) { db.exec('ROLLBACK'); throw e; } }
+  function unreadNotifications(user) { return db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE org_id=? AND user_id=? AND read_at IS NULL').get(user.org_id, user.id).count; }
   function audit(user, action, requestId = null) { db.prepare('INSERT INTO audit(org_id,actor_id,action,request_id) VALUES (?,?,?,?)').run(user.org_id, user.id, action, requestId); }
   function admin(user) { const current = db.prepare('SELECT role,active FROM users WHERE id=?').get(user.id); if (!current?.active || current.role !== 'admin') fail(403, 'Acesso restrito ao administrador.'); }
   function sector(id, org, allowInactive = false) {
@@ -226,6 +230,35 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         res.setHeader('Set-Cookie', `cosmos=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? '; Secure' : ''}`);
         return json(200, { ok: true });
       }
+      if (req.method === 'GET' && path === '/api/notifications') {
+        const status = url.searchParams.get('status') || 'all';
+        if (!['all','unread','read'].includes(status)) fail(400, 'Filtro de notificações inválido.');
+        const rawBefore = url.searchParams.get('before');
+        if (rawBefore !== null && !/^[1-9]\d*$/.test(rawBefore)) fail(400, 'Cursor de notificações inválido.');
+        const before = rawBefore === null ? Number.MAX_SAFE_INTEGER : Number(rawBefore);
+        if (!Number.isSafeInteger(before) || before <= 0) fail(400, 'Cursor de notificações inválido.');
+        const rows = db.prepare("SELECT n.id,n.request_id,n.message,n.read_at,n.created_at,a.name AS actor FROM notifications n JOIN requests r ON r.id=n.request_id AND r.org_id=n.org_id AND r.user_id=n.user_id JOIN users a ON a.id=n.actor_id AND a.org_id=n.org_id WHERE n.org_id=? AND n.user_id=? AND n.id<? AND (?='all' OR (?='unread' AND n.read_at IS NULL) OR (?='read' AND n.read_at IS NOT NULL)) ORDER BY n.id DESC LIMIT 51").all(user.org_id,user.id,before,status,status,status);
+        const notifications = rows.slice(0,50);
+        return json(200, { notifications, unreadCount: unreadNotifications(user), nextBefore: rows.length > 50 ? notifications.at(-1).id : null });
+      }
+      if (req.method === 'POST' && path === '/api/notifications/read-all') {
+        const { through } = await readBody(req);
+        if (!Number.isSafeInteger(through) || through <= 0) fail(400, 'Limite de notificações inválido.');
+        const changed = transaction(() => db.prepare("UPDATE notifications SET read_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE org_id=? AND user_id=? AND id<=? AND read_at IS NULL").run(user.org_id,user.id,through).changes);
+        return json(200, { ok:true, changed, unreadCount: unreadNotifications(user) });
+      }
+      const notificationReadMatch = /^\/api\/notifications\/(\d+)\/read$/.exec(path);
+      if (req.method === 'POST' && notificationReadMatch) {
+        await readBody(req);
+        const id = Number(notificationReadMatch[1]);
+        if (!Number.isSafeInteger(id) || id <= 0) fail(400, 'Notificação inválida.');
+        transaction(() => {
+          const notification = db.prepare('SELECT id FROM notifications WHERE id=? AND org_id=? AND user_id=?').get(id,user.org_id,user.id);
+          if (!notification) fail(404, 'Notificação não encontrada.');
+          db.prepare("UPDATE notifications SET read_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND user_id=? AND read_at IS NULL").run(id,user.org_id,user.id);
+        });
+        return json(200, { ok:true, unreadCount: unreadNotifications(user) });
+      }
       if (req.method === 'GET' && path === '/api/history') {
         admin(user);
         const rawBefore = url.searchParams.get('before');
@@ -249,7 +282,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const requests = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer,a.name AS assignee_name,CASE WHEN a.active=1 AND a.role='admin' THEN 1 ELSE 0 END AS assignee_available FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by LEFT JOIN users a ON a.id=r.assigned_to AND a.org_id=r.org_id WHERE r.org_id=? ${user.role === 'admin' ? '' : 'AND r.user_id=?'} ORDER BY r.id DESC`).all(...(user.role === 'admin' ? [user.org_id] : [user.org_id, user.id]));
         const history = user.role === 'admin' ? db.prepare('SELECT a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id WHERE a.org_id=? ORDER BY a.id DESC LIMIT 50').all(user.org_id) : [];
         const today = brazilDay();
-        return json(200, { user: safeUser(user), organization, sectors, users, requests: requests.map(request => ({ ...request, is_overdue: isRequestOverdue(request, today) })), history });
+        return json(200, { user: safeUser(user), organization, sectors, users, requests: requests.map(request => ({ ...request, is_overdue: isRequestOverdue(request, today) })), history, notification_unread: unreadNotifications(user) });
       }
       if (req.method === 'GET' && path === '/api/requests/export.csv') {
         const status = url.searchParams.get('status') || '';
@@ -463,6 +496,8 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
           if (request.status !== 'pendente') fail(409, 'Esta solicitação já foi avaliada.');
           db.prepare("UPDATE requests SET status=?,decision=?,decided_by=?,decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?").run(body.status, decision, user.id, request.id, user.org_id);
           audit(user, `Solicitação #${request.id} ${body.status}: ${decision}`, request.id);
+          const message = `Solicitação COS-${String(request.id).padStart(5, '0')} ${body.status === 'aprovada' ? 'aprovada' : 'recusada'}.`;
+          db.prepare('INSERT INTO notifications(org_id,user_id,request_id,actor_id,message) VALUES (?,?,?,?,?)').run(user.org_id,request.user_id,request.id,user.id,message);
         }); return json(200, { ok: true });
       }
       fail(404, 'Recurso não encontrado.');
