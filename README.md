@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Resumo dos resultados na tela
+
+Em **Solicitações**, quatro cartões mostram pendentes, aprovadas, recusadas e pendentes vencidas entre os pedidos que correspondem aos filtros atuais. Busca, período, setor, prioridade, situação e fila são considerados. Vencidas já estão incluídas nas pendentes; não some esse indicador ao total. Sem resultados, os cartões mostram zero.
+
+O resumo é recalculado ao mudar os filtros e após atualizar os dados. Um período inválido oculta os cartões até a correção. Sair da conta remove os números da tela. O resumo usa apenas os pedidos já autorizados no workspace e não faz consultas adicionais.
+
 ## Relatório resumido por setor
 
 Em **Solicitações → Resumo por setor**, baixe um CSV com uma linha por setor que tenha pedidos correspondentes aos filtros. Colunas: total, pendentes, aprovadas, recusadas, pendentes vencidas e pendentes urgentes. Os dois últimos indicadores são subconjuntos das pendentes e não devem ser somados ao total.

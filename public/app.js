@@ -31,7 +31,7 @@ function clearRequestFilters() {
   $('#request-order').value = 'recent';
   for (const id of ['request-search', 'status-filter', 'deadline-filter', 'assignment-filter', 'sector-filter', 'priority-filter', 'created-from', 'created-to']) $(`#${id}`).value = '';
 }
-function showAuth() { workspaceEpoch++; refreshSequence++; $('#refresh-workspace').disabled = false; $('#refresh-workspace').textContent = 'Atualizar dados ↻'; $('#refresh-workspace').removeAttribute('aria-busy'); $('#workspace-updated').textContent = ''; currentView = 'dashboard'; clearRequestFilters(); clearSectorFilters(); clearPeopleFilters(); resetHistory(); resetNotifications(); $('#workspace').hidden = true; $('#auth').hidden = false; }
+function showAuth() { $('#request-summary-metrics').replaceChildren(); workspaceEpoch++; refreshSequence++; $('#refresh-workspace').disabled = false; $('#refresh-workspace').textContent = 'Atualizar dados ↻'; $('#refresh-workspace').removeAttribute('aria-busy'); $('#workspace-updated').textContent = ''; currentView = 'dashboard'; clearRequestFilters(); clearSectorFilters(); clearPeopleFilters(); resetHistory(); resetNotifications(); $('#workspace').hidden = true; $('#auth').hidden = false; }
 function authMode(value) {
   registering = value;
   $('#registration-fields').hidden = !value;
@@ -260,6 +260,14 @@ function renderRequests() {
   $('#export-requests').disabled = Boolean(error); $('#export-sector-summary').disabled = Boolean(error);
   const filtered = state.requests.filter(r => matchesRequestPeriod(r,from,to) && (!sector || r.sector_id === Number(sector)) && (!priority || r.priority === priority) && (!status || r.status === status) && (!overdueOnly || r.is_overdue) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === state.user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))) && matchesRequestSearch(r, search));
   $('#all-requests').innerHTML = table(orderRequests(filtered, $('#request-order').value));
+  $('#request-summary').hidden = Boolean(error);
+  const counts = [
+    ['Pendentes', filtered.filter(r => r.status === 'pendente').length, 'Aguardando decisão', 'clock'],
+    ['Aprovadas', filtered.filter(r => r.status === 'aprovada').length, 'Pedidos autorizados', 'check'],
+    ['Recusadas', filtered.filter(r => r.status === 'recusada').length, 'Pedidos não autorizados', 'document'],
+    ['Pendentes vencidas', filtered.filter(r => r.status === 'pendente' && r.is_overdue).length, 'Incluídas nas pendentes', 'clock']
+  ];
+  $('#request-summary-metrics').innerHTML = counts.map(([label,value,subtitle,symbol]) => `<article class="metric"><span class="metric-symbol">${icon(symbol)}</span><div class="metric-content"><span class="metric-label">${label}</span><strong>${value}</strong><small>${subtitle}</small></div></article>`).join('');
   $('#request-results').textContent = `${filtered.length} de ${state.requests.length} ${state.requests.length === 1 ? 'solicitação' : 'solicitações'}`;
 }
 $('#created-from').onchange = renderRequests; $('#created-to').onchange = renderRequests;
