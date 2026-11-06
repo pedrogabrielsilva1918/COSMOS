@@ -17,6 +17,12 @@ A inicialização cria a tabela de notificações e índices sem apagar registro
 
 A API `GET /api/notifications?status=all|unread|read&before=ID` retorna `notifications`, `nextBefore` e `unreadCount` apenas para a pessoa e organização da sessão. `POST /api/notifications/:id/read`, com JSON `{}`, marca um aviso próprio; repetir a ação é permitido e não altera a primeira data de leitura. O workspace inclui `notification_unread`.
 
+## Encerrar outros acessos
+
+Em **Minha conta → Encerrar outros acessos**, qualquer pessoa pode invalidar as demais sessões da própria conta, mantendo a sessão atual e a senha. Os outros navegadores precisarão entrar novamente na próxima requisição ao servidor. O comando não altera contas de colegas nem de outras organizações. Repetir sem outros acessos não altera nada. Esta ação não troca a senha; se ela foi compartilhada, use também a troca de senha.
+
+`POST /api/account/sessions/revoke-others`, com JSON `{}`, retorna `ok` e `revoked` (quantidade de registros de sessão removidos, incluindo eventuais registros expirados). A revogação e o histórico são gravados juntos; não há alteração no esquema do banco.
+
 ## Consultar todo o histórico
 
 Administradores podem acessar **Histórico**, pesquisar por ação ou nome da pessoa responsável e clicar em **Buscar** ou pressionar Enter. A consulta ignora acentos e maiúsculas. Se houver várias palavras, todas precisam aparecer na ação ou no nome, em qualquer ordem. O nome é o cadastro atual da pessoa; a ação mantém o texto registrado na época.

@@ -51,7 +51,16 @@ $('#auth-form').onsubmit = async event => {
 async function logout() { try { await api('/logout', {}); state = null; $('#modal').close(); showAuth(); } catch (error) { notify(error.message); } }
 $('#logout').onclick = logout;
 $('#account-settings').onclick = () => {
-  openModal('Minha conta', `<p class="detail-meta">${escapeHTML(state.user.name)}<br>${escapeHTML(state.user.email)}</p><form id="password-form"><label>Senha atual<input name="currentPassword" type="password" required maxlength="128" autocomplete="current-password"></label><label>Nova senha<input name="newPassword" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label><label>Confirme a nova senha<input name="confirmation" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label><p class="hint">Use pelo menos 12 caracteres. Ao salvar, todas as sessões da sua conta serão encerradas. Entre novamente com a nova senha.</p><p id="password-error" class="error" role="alert"></p><div class="form-actions"><button class="primary" type="submit">Alterar senha</button></div></form>`);
+  openModal('Minha conta', `<p class="detail-meta">${escapeHTML(state.user.name)}<br>${escapeHTML(state.user.email)}</p><form id="password-form"><label>Senha atual<input name="currentPassword" type="password" required maxlength="128" autocomplete="current-password"></label><label>Nova senha<input name="newPassword" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label><label>Confirme a nova senha<input name="confirmation" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label><p class="hint">Use pelo menos 12 caracteres. Ao salvar, todas as sessões da sua conta serão encerradas. Entre novamente com a nova senha.</p><p id="password-error" class="error" role="alert"></p><div class="form-actions"><button class="primary" type="submit">Alterar senha</button></div></form><hr><h3>Outros acessos</h3><p class="hint">Encerre os acessos da sua conta nos outros navegadores. Este acesso continuará aberto. A senha permanece a mesma.</p><button type="button" id="revoke-other-sessions" class="secondary">Encerrar outros acessos</button><p id="sessions-result" class="hint" role="status" aria-live="polite"></p>`);
+  $('#revoke-other-sessions').onclick = async event => {
+    const button = event.currentTarget, result = $('#sessions-result'), epoch = workspaceEpoch;
+    button.disabled = true; result.textContent = 'Encerrando outros acessos…';
+    try {
+      const data = await api('/account/sessions/revoke-others', {});
+      if (epoch === workspaceEpoch && state) result.textContent = data.revoked ? 'Outros acessos encerrados. Você continua conectado aqui.' : 'Nenhum outro acesso para encerrar.';
+    } catch(error) { if (epoch === workspaceEpoch && state) result.textContent = error.message; }
+    finally { button.disabled = false; }
+  };
   $('#password-form').onsubmit = async event => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
