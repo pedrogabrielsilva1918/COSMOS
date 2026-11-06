@@ -369,7 +369,7 @@ async function refresh() {
 }
 $('#workspace').addEventListener('click', event => { const button = event.target.closest('[data-request]'); if (button) showRequest(Number(button.dataset.request)); const person = event.target.closest('[data-person]'); if (person) editUserForm(Number(person.dataset.person)); const sector = event.target.closest('[data-sector]'); if (sector) editSectorForm(Number(sector.dataset.sector)); });
 $('#close-modal').onclick = () => $('#modal').close();
-function openModal(title, html) { $('#modal-title').textContent = title; $('#modal-body').innerHTML = html; if (!$('#modal').open) $('#modal').showModal(); }
+function openModal(title, html) { $('#modal').classList.remove('request-dialog'); $('#modal-title').textContent = title; $('#modal-body').innerHTML = html; if (!$('#modal').open) $('#modal').showModal(); }
 function showGuide() {
   const admin = state.user.role === 'admin';
   openModal('Seu caminho no COSMOS', `<p class="guide-intro">Um pedido de cada vez. Veja como é simples acompanhar sua rotina por aqui.</p><ol class="guide-steps"><li><span>1</span><div><h3>Conte o que você precisa</h3><p>Crie uma solicitação com título, setor, prioridade e uma justificativa clara.</p></div></li><li><span>2</span><div><h3>Acompanhe a decisão</h3><p>Abra o pedido em Solicitações para ver a situação e o parecer. ${admin ? 'Como administrador, você também pode avaliar os pedidos de outras pessoas.' : 'Os administradores da organização analisam os pedidos.'}</p></div></li><li><span>3</span><div><h3>Mantenha a conversa por perto</h3><p>Use os comentários do pedido para esclarecer dúvidas, inclusive depois da decisão.</p></div></li></ol>${admin ? '<p class="hint">Em Pessoas e Setores você organiza a equipe. Pedidos próprios precisam ser avaliados por outro administrador.</p>' : '<p class="hint">Você acompanha seus próprios pedidos. Para atualizar seu cadastro, procure um administrador.</p>'}<div class="form-actions"><button type="button" class="secondary" id="guide-browse">Ver solicitações</button><button type="button" class="primary" id="guide-new">Criar meu pedido ${icon('arrow')}</button></div>`);
@@ -428,7 +428,7 @@ function editUserForm(id) {
 function mountRequestHistory(id) {
   const section = document.createElement('section'); section.className = 'request-history';
   section.innerHTML = '<div class="section-heading"><h3>Movimentações</h3><button type="button" class="text-button" data-history-reload>Atualizar ↻</button></div><p class="hint">Da mais recente para a mais antiga. Inclui ações registradas após a atualização que habilitou este histórico por pedido.</p><div data-history-list aria-live="polite"></div><button type="button" class="secondary" data-history-older hidden>Carregar movimentações anteriores</button><p class="error" data-history-error role="alert"></p>';
-  $('#modal-body').append(section);
+  $('#request-history-panel').append(section);
   const list = section.querySelector('[data-history-list]'), older = section.querySelector('[data-history-older]'), reload = section.querySelector('[data-history-reload]'), error = section.querySelector('[data-history-error]');
   let nextBefore = null, loading = false;
   async function load(before = null) {
@@ -450,7 +450,7 @@ function mountRequestHistory(id) {
 function mountComments(id) {
   const section = document.createElement('section'); section.className = 'request-comments';
   section.innerHTML = '<div class="section-heading"><h3>Comentários</h3><button type="button" class="text-button" data-reload>Atualizar ↻</button></div><p class="hint">Visíveis ao solicitante e aos administradores. Você também pode comentar após a decisão.</p><button type="button" class="secondary" data-older hidden>Carregar anteriores</button><div data-comment-list aria-live="polite"></div><p class="error" data-load-error role="alert"></p><form data-comment-form><label>Adicionar comentário<textarea name="content" required maxlength="2000" placeholder="Registre um esclarecimento ou uma atualização."></textarea></label><p class="error" data-send-error role="alert"></p><div class="form-actions"><button class="primary" type="submit">Enviar comentário ↗</button></div></form>';
-  $('#modal-body').append(section);
+  $('#request-comments-panel').append(section);
   const list = section.querySelector('[data-comment-list]');
   const older = section.querySelector('[data-older]'); const reload = section.querySelector('[data-reload]');
   const loadError = section.querySelector('[data-load-error]'); const sendError = section.querySelector('[data-send-error]');
@@ -498,7 +498,34 @@ function deadlineForm(request) {
 function showRequest(id) {
   const r = state.requests.find(r => r.id === id); if (!r) return;
   const canDecide = state.user.role === 'admin' && r.status === 'pendente' && r.user_id !== state.user.id;
-  openModal(`Solicitação COS-${String(id).padStart(5, '0')}`, `${pill(r.status)}${r.user_id === state.user.id && r.status === 'pendente' ? '<button type="button" class="secondary" id="edit-own-request">Editar meu pedido</button>' : ''}<div class="request-management-actions">${r.user_id === state.user.id ? '<button type="button" class="secondary" id="reuse-own-request">Usar como modelo</button>' : ''}<a class="secondary request-print-link" href="/api/requests/${id}/print" target="_blank" rel="noopener">Imprimir / salvar PDF ↗</a></div><h3 class="detail-title">${escapeHTML(r.title)}</h3><p class="detail-meta">Solicitante: ${escapeHTML(r.author)}<br>Setor: ${escapeHTML(r.sector)} · Prioridade: ${escapeHTML(r.priority)}<br>Enviada em ${date(r.created_at)}<br>Prazo: ${deadlineBadge(r)}<br>Responsável pela análise: ${assigneeBadge(r)}</p>${state.user.role === 'admin' && r.status === 'pendente' ? '<div class="request-management-actions"><button type="button" class="secondary" id="edit-deadline">Definir ou alterar prazo</button><button type="button" class="secondary" id="edit-assignee">Definir responsável</button></div>' : ''}<div class="detail-description">${escapeHTML(r.description)}</div>${r.decision ? `<div class="decision-note"><strong>Decisão de ${escapeHTML(r.reviewer)} · ${date(r.decided_at)}</strong><p>${escapeHTML(r.decision)}</p></div>` : ''}${r.user_id === state.user.id && state.user.role === 'admin' && r.status === 'pendente' ? '<p class="hint">Outro administrador deve avaliar seu pedido. Você pode cadastrá-lo em Pessoas.</p>' : ''}${canDecide ? '<form id="decision-form"><label>Parecer<textarea name="decision" required maxlength="2000" placeholder="Registre o motivo da decisão."></textarea></label><p class="error" id="decision-error" role="alert"></p><div class="form-actions"><button type="submit" name="status" value="recusada" class="primary danger">Recusar</button><button type="submit" name="status" value="aprovada" class="primary">Aprovar ↗</button></div></form>' : ''}`);
+  const own = r.user_id === state.user.id, pending = r.status === 'pendente', manager = state.user.role === 'admin' && pending;
+  openModal(`Solicitação COS-${String(id).padStart(5, '0')}`, `
+    <div class="request-overview">${pill(r.status)}<h3>${escapeHTML(r.title)}</h3><p>${escapeHTML(r.author)} <span>·</span> ${date(r.created_at)}</p></div>
+    <div class="request-toolbar">${own && pending ? '<button type="button" class="secondary" id="edit-own-request">Editar pedido</button>' : ''}<a class="secondary" href="/api/requests/${id}/print" target="_blank" rel="noopener">Imprimir / PDF ↗</a>${own ? '<button type="button" class="text-button" id="reuse-own-request">Usar como modelo</button>' : ''}</div>
+    <div class="request-tabs" role="tablist" aria-label="Informações da solicitação">${[['details','Detalhes'],['comments','Comentários'],['history','Movimentações']].map(([key,label],i)=>`<button type="button" role="tab" id="request-tab-${key}" aria-controls="request-${key}-panel" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}" data-request-tab="${key}">${label}</button>`).join('')}</div>
+    <section id="request-details-panel" class="request-tab-panel" role="tabpanel" aria-labelledby="request-tab-details" tabindex="0">
+      <dl class="request-facts"><div><dt>Setor</dt><dd>${escapeHTML(r.sector)}</dd></div><div><dt>Prioridade</dt><dd><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase()+r.priority.slice(1))}</span></dd></div><div><dt>Prazo</dt><dd>${deadlineBadge(r)}${manager ? '<button type="button" class="text-button" id="edit-deadline" aria-label="Alterar prazo do pedido">Alterar</button>' : ''}</dd></div><div><dt>Responsável pela análise</dt><dd>${assigneeBadge(r)}${manager ? '<button type="button" class="text-button" id="edit-assignee" aria-label="Alterar responsável pela análise">Alterar</button>' : ''}</dd></div></dl>
+      <section class="request-description"><h4>Descrição e justificativa</h4><p>${escapeHTML(r.description)}</p></section>
+      ${r.decision ? `<section class="decision-note"><strong>${statusName[r.status]} por ${escapeHTML(r.reviewer)}</strong><small>${date(r.decided_at)}</small><p>${escapeHTML(r.decision)}</p></section>` : ''}
+      ${own && state.user.role === 'admin' && pending ? '<p class="request-info">Seu pedido será avaliado por outro administrador. Você pode cadastrá-lo em Pessoas.</p>' : ''}
+      ${canDecide ? '<form id="decision-form"><h4>Registrar decisão</h4><label>Parecer<textarea name="decision" required maxlength="2000" placeholder="Explique o motivo da decisão."></textarea></label><p class="error" id="decision-error" role="alert"></p><div class="form-actions"><button type="submit" name="status" value="recusada" class="secondary">Recusar</button><button type="submit" name="status" value="aprovada" class="primary">Aprovar pedido</button></div></form>' : ''}
+    </section>
+    <section id="request-comments-panel" class="request-tab-panel" role="tabpanel" aria-labelledby="request-tab-comments" tabindex="0" hidden></section>
+    <section id="request-history-panel" class="request-tab-panel" role="tabpanel" aria-labelledby="request-tab-history" tabindex="0" hidden></section>`);
+  $('#modal').classList.add('request-dialog');
+  const tabs = [...$('#modal').querySelectorAll('[data-request-tab]')];
+  function selectTab(tab) {
+    for (const item of tabs) { const selected = item === tab; item.setAttribute('aria-selected',String(selected)); item.tabIndex = selected ? 0 : -1; $(`#request-${item.dataset.requestTab}-panel`).hidden = !selected; }
+  }
+  for (const tab of tabs) {
+    tab.onclick = () => selectTab(tab);
+    tab.onkeydown = event => {
+      if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+      event.preventDefault();
+      const index = tabs.indexOf(tab), next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length-1 : (index+(event.key === 'ArrowRight' ? 1 : -1)+tabs.length)%tabs.length;
+      selectTab(tabs[next]); tabs[next].focus();
+    };
+  }
   if ($('#reuse-own-request')) $('#reuse-own-request').onclick = () => requestForm(r);
   if ($('#edit-own-request')) $('#edit-own-request').onclick = () => editRequestForm(r);
   if ($('#edit-deadline')) $('#edit-deadline').onclick = () => deadlineForm(r);

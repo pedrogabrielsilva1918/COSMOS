@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Janela de solicitação organizada
+
+Ao abrir um pedido, o título, a situação, o solicitante e a data ficam no cabeçalho. **Detalhes** reúne setor, prioridade, prazo, responsável, justificativa e decisão. Administradores elegíveis continuam registrando a decisão nessa aba. Os botões **Alterar** ao lado do prazo e do responsável abrem os mesmos formulários de antes.
+
+**Comentários** e **Movimentações** têm abas próprias, com seus controles de atualização e registros anteriores. Use as setas esquerda/direita, Home ou End ao focar uma aba para navegar pelo teclado. Editar, usar como modelo e imprimir continuam disponíveis conforme as permissões. A janela adapta-se ao celular e mantém o cabeçalho de fechamento fora da área de rolagem.
+
 ## Visual simples e leve
 
 O visual usa fundo claro, menu lateral branco, verde nas ações principais e componentes com bordas discretas. A página inicial tem uma saudação curta e indicadores neutros, com menos decoração e espaçamentos mais compactos. A ilustração grande foi removida. Menu, tabelas, formulários, notificações e entrada seguem a mesma linguagem visual, com adaptação ao celular. Não há fontes, imagens ou bibliotecas externas novas. As funções, filtros e permissões permanecem as mesmas.
