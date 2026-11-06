@@ -548,6 +548,8 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
           if (!request) fail(404, 'Solicitação não encontrada.');
           if (request.user_id === user.id) fail(403, 'Outro administrador deve avaliar sua solicitação.');
           if (request.status !== 'pendente') fail(409, 'Esta solicitação já foi avaliada.');
+          if (!body.expected || typeof body.expected.title !== 'string' || typeof body.expected.description !== 'string') fail(400, 'Reabra o pedido antes de registrar a decisão.');
+          if (request.title !== body.expected.title || request.description !== body.expected.description) fail(409, 'O pedido foi editado durante a análise. Feche o pedido, atualize os dados e abra novamente antes de decidir.');
           db.prepare("UPDATE requests SET status=?,decision=?,decided_by=?,decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?").run(body.status, decision, user.id, request.id, user.org_id);
           audit(user, `Solicitação #${request.id} ${body.status}: ${decision}`, request.id);
           const message = `Solicitação COS-${String(request.id).padStart(5, '0')} ${body.status === 'aprovada' ? 'aprovada' : 'recusada'}.`;

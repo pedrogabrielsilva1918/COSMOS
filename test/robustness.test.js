@@ -1,3 +1,4 @@
+import { reviewedDecision } from '../test-support/reviewed-decision.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -14,6 +15,7 @@ async function start(options = {}) {
 }
 const stop = app => new Promise(resolve => app.close(resolve));
 async function post(base, path, body, headers = {}) {
+  body = await reviewedDecision(base,path,body,headers.cookie || '');
   const response = await fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
   return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
 }
@@ -228,4 +230,32 @@ test('resumo CSV por setor agrega somente pedidos autorizados e filtrados',async
   assert.equal((await report('from=2026-02-29')).status,400);
   assert.equal((await report('assignment=mine',author.cookie)).status,403);
   assert.equal((await report('','')).status,401);
+});
+
+test('decisão rejeita conteúdo desatualizado sem gravar decisão, histórico ou notificação',async t=>{
+  const {app,base}=await start();t.after(()=>stop(app));
+  const admin=await post(base,'/api/register',{name:'Revisor',organization:'Revisão',type:'privada',email:'review@example.com',password});
+  const workspace=async cookie=>(await fetch(base+'/api/workspace',{headers:{cookie}})).json();
+  const sector=(await workspace(admin.cookie)).sectors[0].id;
+  await post(base,'/api/users',{name:'Autor',email:'review-author@example.com',password,role:'colaborador',sector_id:sector},{cookie:admin.cookie});
+  const author=await post(base,'/api/login',{email:'review-author@example.com',password});
+  const original={title:'Material original',description:'Justificativa original'};
+  const created=await post(base,'/api/requests',{...original,sector_id:sector,priority:'normal'},{cookie:author.cookie});
+  const id=created.data.id,path=`/api/requests/${id}/decision`;
+  const edited={title:'Material corrigido',description:original.description};
+  await post(base,`/api/requests/${id}/edit`,{...edited,expected:original},{cookie:author.cookie});
+  const before=await workspace(admin.cookie);
+  assert.equal((await post(base,path,{status:'aprovada',decision:'Parecer sobre versão antiga',expected:original},{cookie:admin.cookie})).status,409);
+  assert.equal((await post(base,path,{status:'aprovada',decision:'Sem revisão',expected:null},{cookie:admin.cookie})).status,400);
+  const missing=await fetch(base+path,{method:'POST',headers:{cookie:admin.cookie,'Content-Type':'application/json'},body:JSON.stringify({status:'aprovada',decision:'Sem versão'})});assert.equal(missing.status,400);
+  let current=await workspace(admin.cookie);assert.deepEqual(current.history,before.history);assert.equal(current.requests.find(r=>r.id===id).status,'pendente');
+  assert.equal((await workspace(author.cookie)).notification_unread,0);
+  const final={title:edited.title,description:'Justificativa revisada com novas quantidades'};
+  await post(base,`/api/requests/${id}/edit`,{...final,expected:edited},{cookie:author.cookie});
+  const afterEdit=await workspace(admin.cookie);
+  assert.equal((await post(base,path,{status:'recusada',decision:'Parecer desatualizado',expected:edited},{cookie:admin.cookie})).status,409);
+  current=await workspace(admin.cookie);assert.deepEqual(current.history,afterEdit.history);assert.equal(current.requests.find(r=>r.id===id).status,'pendente');
+  assert.equal((await workspace(author.cookie)).notification_unread,0);
+  assert.equal((await post(base,path,{status:'aprovada',decision:'Conteúdo atual conferido',expected:final},{cookie:admin.cookie})).status,200);
+  current=await workspace(admin.cookie);assert.equal(current.requests.find(r=>r.id===id).status,'aprovada');assert.equal((await workspace(author.cookie)).notification_unread,1);
 });
