@@ -1,3 +1,4 @@
+import { matchesRequestPeriod, periodError } from './public/request-period.js';
 import { matchesRequestSearch } from './public/request-search.js';
 import http from 'node:http';
 import { orderRequests, REQUEST_ORDERS } from './public/request-order.js';
@@ -155,7 +156,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       const path = url.pathname;
       if (!path.startsWith('/api/')) {
         if (req.method !== 'GET') fail(405, 'Método não permitido.');
-        const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'], '/horizonte.css': ['horizonte.css', 'text/css'], '/print.css': ['print.css', 'text/css'], '/print.js': ['print.js', 'text/javascript'], '/request-order.js': ['request-order.js', 'text/javascript'], '/request-search.js': ['request-search.js', 'text/javascript'], '/sector-overview.js': ['sector-overview.js', 'text/javascript'], '/sector-search.js': ['sector-search.js', 'text/javascript'], '/people-search.js': ['people-search.js', 'text/javascript'] };
+        const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'], '/horizonte.css': ['horizonte.css', 'text/css'], '/print.css': ['print.css', 'text/css'], '/print.js': ['print.js', 'text/javascript'], '/request-order.js': ['request-order.js', 'text/javascript'], '/request-search.js': ['request-search.js', 'text/javascript'], '/request-period.js': ['request-period.js', 'text/javascript'], '/sector-overview.js': ['sector-overview.js', 'text/javascript'], '/sector-search.js': ['sector-search.js', 'text/javascript'], '/people-search.js': ['people-search.js', 'text/javascript'] };
         if (!assets[path]) fail(404, 'Página não encontrada.');
         const [file, mime] = assets[path];
         res.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8` }); return res.end(readFileSync(join(root, 'public', file)));
@@ -286,6 +287,8 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         return json(200, { user: safeUser(user), organization, sectors, users, requests: requests.map(request => ({ ...request, is_overdue: isRequestOverdue(request, today) })), history, notification_unread: unreadNotifications(user) });
       }
       if (req.method === 'GET' && path === '/api/requests/export.csv') {
+        const from = url.searchParams.get('from') || '', to = url.searchParams.get('to') || '';
+        const invalidPeriod = periodError(from,to); if (invalidPeriod) fail(400,invalidPeriod);
         const status = url.searchParams.get('status') || '';
         const query = (url.searchParams.get('q') || '').trim().toLocaleLowerCase('pt-BR');
         const deadline = url.searchParams.get('deadline') || '';
@@ -310,7 +313,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         if (priority) { conditions += ' AND r.priority=?'; params.push(priority); }
         if (sectorFilter) { conditions += ' AND r.sector_id=?'; params.push(Number(sectorFilter)); }
         const rows = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer,a.name AS assignee_name,CASE WHEN a.active=1 AND a.role='admin' THEN 1 ELSE 0 END AS assignee_available FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by LEFT JOIN users a ON a.id=r.assigned_to AND a.org_id=r.org_id WHERE ${conditions} ORDER BY r.id DESC`).all(...params)
-          .filter(r => matchesRequestSearch(r, query) && (!deadline || isRequestOverdue(r, today)) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))));
+          .filter(r => matchesRequestPeriod(r,from,to) && matchesRequestSearch(r, query) && (!deadline || isRequestOverdue(r, today)) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))));
         const labels = { pendente: 'Pendente', aprovada: 'Aprovada', recusada: 'Recusada', normal: 'Normal', alta: 'Alta', urgente: 'Urgente' };
         const header = ['Protocolo', 'Título', 'Solicitante', 'Setor', 'Situação', 'Prioridade', 'Descrição', 'Criada em (UTC)', 'Decidida em (UTC)', 'Responsável pela decisão', 'Parecer', 'Prazo (AAAA-MM-DD)', 'Responsável pela análise'];
         const csv = [header, ...orderRequests(rows, order).map(r => [`COS-${String(r.id).padStart(5, '0')}`, r.title, r.author, r.sector, labels[r.status], labels[r.priority], r.description, r.created_at, r.decided_at, r.reviewer, r.decision, r.due_date, r.assignee_name])]

@@ -1,3 +1,4 @@
+import { matchesRequestPeriod, periodError } from './request-period.js';
 import { matchesRequestSearch } from './request-search.js';
 import { orderRequests } from './request-order.js';
 import { summarizeSectors } from './sector-overview.js';
@@ -28,7 +29,7 @@ async function api(path, body) {
 function notify(message) { clearTimeout(noticeTimer); $('#notice').textContent = message; $('#notice').hidden = false; noticeTimer = setTimeout(() => { $('#notice').hidden = true; }, 6000); }
 function clearRequestFilters() {
   $('#request-order').value = 'recent';
-  for (const id of ['request-search', 'status-filter', 'deadline-filter', 'assignment-filter', 'sector-filter', 'priority-filter']) $(`#${id}`).value = '';
+  for (const id of ['request-search', 'status-filter', 'deadline-filter', 'assignment-filter', 'sector-filter', 'priority-filter', 'created-from', 'created-to']) $(`#${id}`).value = '';
 }
 function showAuth() { workspaceEpoch++; refreshSequence++; $('#refresh-workspace').disabled = false; $('#refresh-workspace').textContent = 'Atualizar dados ↻'; $('#refresh-workspace').removeAttribute('aria-busy'); $('#workspace-updated').textContent = ''; currentView = 'dashboard'; clearRequestFilters(); clearSectorFilters(); clearPeopleFilters(); resetHistory(); resetNotifications(); $('#workspace').hidden = true; $('#auth').hidden = false; }
 function authMode(value) {
@@ -254,10 +255,14 @@ function renderRequests() {
   const overdueOnly = $('#deadline-filter').value === 'overdue';
   const assignment = state.user.role === 'admin' ? $('#assignment-filter').value : '';
   const sector = $('#sector-filter').value, priority = $('#priority-filter').value;
-  const filtered = state.requests.filter(r => (!sector || r.sector_id === Number(sector)) && (!priority || r.priority === priority) && (!status || r.status === status) && (!overdueOnly || r.is_overdue) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === state.user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))) && matchesRequestSearch(r, search));
+  const from = $('#created-from').value, to = $('#created-to').value;
+  const error = periodError(from,to); $('#request-period-error').textContent = error;
+  $('#export-requests').disabled = Boolean(error);
+  const filtered = state.requests.filter(r => matchesRequestPeriod(r,from,to) && (!sector || r.sector_id === Number(sector)) && (!priority || r.priority === priority) && (!status || r.status === status) && (!overdueOnly || r.is_overdue) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === state.user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))) && matchesRequestSearch(r, search));
   $('#all-requests').innerHTML = table(orderRequests(filtered, $('#request-order').value));
   $('#request-results').textContent = `${filtered.length} de ${state.requests.length} ${state.requests.length === 1 ? 'solicitação' : 'solicitações'}`;
 }
+$('#created-from').onchange = renderRequests; $('#created-to').onchange = renderRequests;
 $('#request-search').oninput = renderRequests; $('#status-filter').onchange = renderRequests;
 $('#deadline-filter').onchange = renderRequests;
 $('#request-order').onchange = renderRequests;
@@ -266,8 +271,10 @@ $('#clear-request-filters').onclick = () => { clearRequestFilters(); renderReque
 $('#assignment-filter').onchange = () => { if ($('#assignment-filter').value) $('#status-filter').value = 'pendente'; renderRequests(); };
 $('#overdue-alert').onclick = () => { clearRequestFilters(); $('#status-filter').value = 'pendente'; $('#deadline-filter').value = 'overdue'; $('#request-order').value = 'deadline'; renderRequests(); setView('requests'); };
 $('#export-requests').onclick = async () => {
+  const error = periodError($('#created-from').value,$('#created-to').value);
+  if (error) { notify(error); return; }
   const button = $('#export-requests'); button.disabled = true; button.textContent = 'Preparando…';
-  const params = new URLSearchParams({ q: $('#request-search').value.trim(), status: $('#status-filter').value, deadline: $('#deadline-filter').value, assignment: $('#assignment-filter').value, sector_id: $('#sector-filter').value, priority: $('#priority-filter').value, order: $('#request-order').value });
+  const params = new URLSearchParams({ q: $('#request-search').value.trim(), from: $('#created-from').value, to: $('#created-to').value, status: $('#status-filter').value, deadline: $('#deadline-filter').value, assignment: $('#assignment-filter').value, sector_id: $('#sector-filter').value, priority: $('#priority-filter').value, order: $('#request-order').value });
   try {
     const response = await fetch(`/api/requests/export.csv?${params}`);
     if (!response.ok) {

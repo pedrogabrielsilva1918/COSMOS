@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Período de criação das solicitações
+
+Em **Solicitações**, use **Criadas a partir de** e **Criadas até**. Os limites incluem todo o dia escolhido no fuso `America/Sao_Paulo` (horário de Brasília), independentemente do fuso do navegador. Preencha apenas uma data para deixar o outro limite em aberto. O período combina com busca, filtros e ordenação e também vale para o CSV.
+
+**Atualizar dados** preserva as datas; **Limpar filtros** e sair da conta removem o período. Datas inválidas ou invertidas mostram uma mensagem e bloqueiam a exportação. A API de CSV aceita `from=AAAA-MM-DD` e `to=AAAA-MM-DD` e rejeita períodos inválidos com 400. A regra de data é compartilhada pelo navegador e servidor, sem alteração no banco ou nas permissões.
+
 ## Busca ampliada de solicitações
 
 Em **Solicitações**, pesquise por título, protocolo, nome do solicitante, setor ou descrição/justificativa. A busca ignora acentos e maiúsculas; todas as palavras precisam aparecer nos campos pesquisados, em qualquer ordem. Por exemplo, `material joao` encontra um pedido de João cuja justificativa mencione material. O protocolo mantém o formato `COS-00012`.
