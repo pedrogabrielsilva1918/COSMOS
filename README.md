@@ -2,6 +2,14 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Páginas de solicitações
+
+A lista apresenta até **25 pedidos por página**, com **Anterior** e **Próxima** acima e abaixo da tabela. Os controles aparecem somente quando há mais de uma página. A indicação de resultados informa o intervalo exibido e o total filtrado.
+
+A busca, os filtros e a ordenação são aplicados antes de dividir as páginas. Alterar um filtro, mudar a ordenação, ou atualizar os dados recarrega a primeira página. Trocar de tela preserva a página enquanto os dados não forem atualizados. Sair da conta também restaura a primeira página. Os cartões de resumo e os dois CSVs continuam considerando **todos os resultados filtrados**, não apenas a página visível.
+
+A paginação acontece no navegador sobre os dados já autorizados do workspace; não reduz o volume recebido do servidor. Não há alteração nas APIs ou no banco.
+
 ## Filtros compactos de solicitações
 
 Busca, situação e exportações ficam visíveis. Abra **Mais filtros e ordenação** para usar prazo, setor, prioridade, fila, ordenação e período. Recolher a área mantém os valores e a filtragem; o título indica quantos ajustes adicionais estão ativos, incluindo ordenação diferente de Mais recentes. Datas inicial e final contam separadamente.
