@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Usar um pedido como modelo
+
+Abra um pedido próprio e clique em **Usar como modelo**. O COSMOS preenche título, justificativa, prioridade e setor ativo em um novo formulário. Revise os dados e clique em **Salvar** para enviar uma nova solicitação pendente, com novo protocolo. Cancelar ou fechar o formulário não cria registros. Pedidos pendentes, aprovados e recusados podem ser usados como modelo.
+
+Se o setor original estiver desativado, será obrigatório escolher um setor ativo. Sem setores ativos, o sistema orienta procurar o administrador. A operação usa a criação normal de pedidos: não copia parecer, aprovação, prazo, responsável, comentários ou histórico. Administradores também usam apenas os próprios pedidos como modelo. O pedido original permanece intacto. Não há nova API nem alteração no banco.
+
 ## Editar meu pedido
 
 Abra uma solicitação própria pendente e clique em **Editar meu pedido** para corrigir título e descrição/justificativa. A edição mantém protocolo, setor, prioridade, prazo, responsável, comentários e data de criação. Administradores também só editam os próprios pedidos; pedidos decididos não podem ser editados. As movimentações registram o título anterior e o novo e indicam se a justificativa foi atualizada, sem manter versões anteriores do texto completo.
