@@ -2,6 +2,16 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Notificações de decisões
+
+Quando um administrador aprova ou recusa um pedido, o solicitante recebe um aviso interno em **Notificações**. O contador do menu mostra seus avisos não lidos. **Atualizar dados** busca novas decisões; não há atualização automática, e-mail ou notificação no dispositivo.
+
+A central apresenta páginas de até 50 avisos, com **Carregar avisos anteriores**. **Marcar como lida** atualiza apenas seu próprio aviso. **Ver pedido** também marca o aviso como lido, atualiza os dados e abre o pedido com a decisão atual. Essas ações recarregam a primeira página da central. Um administrador recebe os avisos dos próprios pedidos, sem acesso aos avisos de outras pessoas.
+
+A inicialização cria a tabela de notificações e índices sem apagar registros. Decisões anteriores à atualização não geram avisos retroativos. A decisão, seu histórico e a notificação são salvos na mesma transação; uma falha desfaz o conjunto. Os estados de leitura são persistentes. Faça backup antes de iniciar a versão atualizada.
+
+A API `GET /api/notifications?before=ID` retorna `notifications`, `nextBefore` e `unreadCount` apenas para a pessoa e organização da sessão. `POST /api/notifications/:id/read`, com JSON `{}`, marca um aviso próprio; repetir a ação é permitido e não altera a primeira data de leitura. O workspace inclui `notification_unread`.
+
 ## Consultar todo o histórico
 
 Administradores podem acessar **Histórico**, pesquisar por ação ou nome da pessoa responsável e clicar em **Buscar** ou pressionar Enter. A consulta ignora acentos e maiúsculas. Se houver várias palavras, todas precisam aparecer na ação ou no nome, em qualquer ordem. O nome é o cadastro atual da pessoa; a ação mantém o texto registrado na época.
@@ -306,6 +316,10 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/logout` | Autenticado |
 | POST | `/api/account/password` | Troca de senha da própria conta; exige senha atual |
 | GET | `/api/workspace` | Dados visíveis ao usuário autenticado |
+| GET | `/api/notifications?before=ID` | Avisos próprios da conta e organização da sessão |
+| POST | `/api/notifications/:id/read` | Marca aviso próprio como lido; JSON `{}` |
+| GET | `/api/notifications?before=ID` | Avisos próprios da conta e organização da sessão |
+| POST | `/api/notifications/:id/read` | Marca aviso próprio como lido; JSON `{}` |
 | GET | `/api/history?q=busca&before=ID` | Administrador da organização; páginas de até 50 ações |
 | POST | `/api/sectors` | Administrador |
 | POST | `/api/sectors/suggested` | Administrador; JSON `{}`; inclui os três sugeridos sem duplicação |
@@ -325,6 +339,6 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 
 Este MVP não é uma implantação de produção. Antes de usar dados reais de funcionários ou órgãos, configure HTTPS, persistência e backups com restauração validada, revisão de acesso e política de retenção. O cadastro de organizações está aberto; restrinja-o no ambiente institucional se necessário. A proteção de tentativas é por IP e processo; por padrão ignora cabeçalhos de proxy. O modo opcional de proxy exige uma lista explícita de IPs confiáveis, conforme descrito abaixo.
 
-Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail, anexos, edição de solicitações, notificações ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
+Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail, anexos, edição de solicitações, notificações por e-mail ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
 
 Use `npm run backup` para gerar uma cópia SQLite autônoma e verificada. Como alternativa manual, pare o servidor e copie o diretório `data` completo, incluindo eventuais arquivos WAL/SHM. Guarde uma cópia fora do Codespace e limite o acesso.
