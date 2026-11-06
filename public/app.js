@@ -257,7 +257,7 @@ function renderRequests() {
   const sector = $('#sector-filter').value, priority = $('#priority-filter').value;
   const from = $('#created-from').value, to = $('#created-to').value;
   const error = periodError(from,to); $('#request-period-error').textContent = error;
-  $('#export-requests').disabled = Boolean(error);
+  $('#export-requests').disabled = Boolean(error); $('#export-sector-summary').disabled = Boolean(error);
   const filtered = state.requests.filter(r => matchesRequestPeriod(r,from,to) && (!sector || r.sector_id === Number(sector)) && (!priority || r.priority === priority) && (!status || r.status === status) && (!overdueOnly || r.is_overdue) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === state.user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))) && matchesRequestSearch(r, search));
   $('#all-requests').innerHTML = table(orderRequests(filtered, $('#request-order').value));
   $('#request-results').textContent = `${filtered.length} de ${state.requests.length} ${state.requests.length === 1 ? 'solicitação' : 'solicitações'}`;
@@ -270,13 +270,13 @@ $('#sector-filter').onchange = renderRequests; $('#priority-filter').onchange = 
 $('#clear-request-filters').onclick = () => { clearRequestFilters(); renderRequests(); };
 $('#assignment-filter').onchange = () => { if ($('#assignment-filter').value) $('#status-filter').value = 'pendente'; renderRequests(); };
 $('#overdue-alert').onclick = () => { clearRequestFilters(); $('#status-filter').value = 'pendente'; $('#deadline-filter').value = 'overdue'; $('#request-order').value = 'deadline'; renderRequests(); setView('requests'); };
-$('#export-requests').onclick = async () => {
+async function exportRequests(summary = false) {
   const error = periodError($('#created-from').value,$('#created-to').value);
   if (error) { notify(error); return; }
-  const button = $('#export-requests'); button.disabled = true; button.textContent = 'Preparando…';
+  const button = $(summary ? '#export-sector-summary' : '#export-requests'), label = button.textContent; button.disabled = true; button.textContent = 'Preparando…';
   const params = new URLSearchParams({ q: $('#request-search').value.trim(), from: $('#created-from').value, to: $('#created-to').value, status: $('#status-filter').value, deadline: $('#deadline-filter').value, assignment: $('#assignment-filter').value, sector_id: $('#sector-filter').value, priority: $('#priority-filter').value, order: $('#request-order').value });
   try {
-    const response = await fetch(`/api/requests/export.csv?${params}`);
+    const response = await fetch(`/api/requests/${summary ? 'summary' : 'export'}.csv?${params}`);
     if (!response.ok) {
       const data = await response.json();
       if (response.status === 401) { state = null; $('#modal').close(); showAuth(); }
@@ -284,12 +284,14 @@ $('#export-requests').onclick = async () => {
     }
     const file = await response.blob();
     const url = URL.createObjectURL(file); const link = document.createElement('a');
-    link.href = url; link.download = 'cosmos-solicitacoes.csv'; document.body.append(link); link.click(); link.remove();
+    link.href = url; link.download = summary ? 'cosmos-resumo-setores.csv' : 'cosmos-solicitacoes.csv'; document.body.append(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     notify('Arquivo preparado para download.');
   } catch (error) { notify(error.message); }
-  finally { button.disabled = false; button.textContent = 'Exportar CSV ↓'; }
-};
+  finally { button.disabled = Boolean(periodError($('#created-from').value,$('#created-to').value)); button.textContent = label; }
+}
+$('#export-requests').onclick = () => exportRequests();
+$('#export-sector-summary').onclick = () => exportRequests(true);
 
 $('#refresh-workspace').onclick = async () => {
   try { await refresh(); }

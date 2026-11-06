@@ -286,7 +286,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const today = brazilDay();
         return json(200, { user: safeUser(user), organization, sectors, users, requests: requests.map(request => ({ ...request, is_overdue: isRequestOverdue(request, today) })), history, notification_unread: unreadNotifications(user) });
       }
-      if (req.method === 'GET' && path === '/api/requests/export.csv') {
+      if (req.method === 'GET' && ['/api/requests/export.csv','/api/requests/summary.csv'].includes(path)) {
         const from = url.searchParams.get('from') || '', to = url.searchParams.get('to') || '';
         const invalidPeriod = periodError(from,to); if (invalidPeriod) fail(400,invalidPeriod);
         const status = url.searchParams.get('status') || '';
@@ -314,6 +314,20 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         if (sectorFilter) { conditions += ' AND r.sector_id=?'; params.push(Number(sectorFilter)); }
         const rows = db.prepare(`SELECT r.*,u.name AS author,s.name AS sector,d.name AS reviewer,a.name AS assignee_name,CASE WHEN a.active=1 AND a.role='admin' THEN 1 ELSE 0 END AS assignee_available FROM requests r JOIN users u ON u.id=r.user_id JOIN sectors s ON s.id=r.sector_id LEFT JOIN users d ON d.id=r.decided_by LEFT JOIN users a ON a.id=r.assigned_to AND a.org_id=r.org_id WHERE ${conditions} ORDER BY r.id DESC`).all(...params)
           .filter(r => matchesRequestPeriod(r,from,to) && matchesRequestSearch(r, query) && (!deadline || isRequestOverdue(r, today)) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))));
+        if (path === '/api/requests/summary.csv') {
+          const groups = new Map();
+          for (const request of rows) {
+            if (!groups.has(request.sector_id)) groups.set(request.sector_id,{ id:request.sector_id, name:request.sector, total:0, pending:0, approved:0, refused:0, overdue:0, urgent:0 });
+            const group = groups.get(request.sector_id); group.total++;
+            if (request.status === 'pendente') { group.pending++; if (isRequestOverdue(request,today)) group.overdue++; if (request.priority === 'urgente') group.urgent++; }
+            if (request.status === 'aprovada') group.approved++;
+            if (request.status === 'recusada') group.refused++;
+          }
+          const summary = [...groups.values()].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR') || a.id-b.id);
+          const csv = [['Setor','Total','Pendentes','Aprovadas','Recusadas','Pendentes vencidas','Pendentes urgentes'],...summary.map(g=>[g.name,g.total,g.pending,g.approved,g.refused,g.overdue,g.urgent])].map(row=>row.map(csvCell).join(';')).join('\r\n')+'\r\n';
+          res.writeHead(200, { 'Content-Type':'text/csv; charset=utf-8', 'Content-Disposition':'attachment; filename="cosmos-resumo-setores.csv"', 'Cache-Control':'no-store' });
+          return res.end('\uFEFF'+csv);
+        }
         const labels = { pendente: 'Pendente', aprovada: 'Aprovada', recusada: 'Recusada', normal: 'Normal', alta: 'Alta', urgente: 'Urgente' };
         const header = ['Protocolo', 'Título', 'Solicitante', 'Setor', 'Situação', 'Prioridade', 'Descrição', 'Criada em (UTC)', 'Decidida em (UTC)', 'Responsável pela decisão', 'Parecer', 'Prazo (AAAA-MM-DD)', 'Responsável pela análise'];
         const csv = [header, ...orderRequests(rows, order).map(r => [`COS-${String(r.id).padStart(5, '0')}`, r.title, r.author, r.sector, labels[r.status], labels[r.priority], r.description, r.created_at, r.decided_at, r.reviewer, r.decision, r.due_date, r.assignee_name])]

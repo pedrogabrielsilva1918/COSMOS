@@ -199,3 +199,33 @@ test('CSV usa busca ampliada e mantém isolamento de pedidos',async t=>{
   const periodModule=await fetch(base+'/request-period.js');assert.equal(periodModule.status,200);assert.match(periodModule.headers.get('content-type'),/javascript/);
   const module=await fetch(base+'/request-search.js');assert.equal(module.status,200);assert.match(module.headers.get('content-type'),/javascript/);
 });
+
+test('resumo CSV por setor agrega somente pedidos autorizados e filtrados',async t=>{
+  const {app,base}=await start();t.after(()=>stop(app));
+  const admin=await post(base,'/api/register',{name:'Admin',organization:'Relatórios',type:'privada',email:'summary@example.com',password});
+  const other=await post(base,'/api/register',{name:'Outro',organization:'Outra',type:'publica',email:'summary-other@example.com',password});
+  const workspace=await (await fetch(base+'/api/workspace',{headers:{cookie:admin.cookie}})).json();const first=workspace.sectors[0];
+  await post(base,'/api/sectors',{name:'Zeta resumo'},{cookie:admin.cookie});
+  const sectors=(await (await fetch(base+'/api/workspace',{headers:{cookie:admin.cookie}})).json()).sectors;const second=sectors.find(s=>s.name==='Zeta resumo');
+  await post(base,'/api/users',{name:'Autor',email:'summary-author@example.com',password,role:'colaborador',sector_id:first.id},{cookie:admin.cookie});
+  const author=await post(base,'/api/login',{email:'summary-author@example.com',password});
+  const create=async(sector,priority,cookie)=>post(base,'/api/requests',{title:'Material relatório',description:'Teste resumo',priority,sector_id:sector},{cookie});
+  const overdue=await create(first.id,'urgente',author.cookie);
+  await post(base,`/api/requests/${overdue.data.id}/deadline`,{due_date:'2020-01-01'},{cookie:admin.cookie});
+  const approved=await create(first.id,'normal',author.cookie);await post(base,`/api/requests/${approved.data.id}/decision`,{status:'aprovada',decision:'Aprovado'},{cookie:admin.cookie});
+  const refused=await create(second.id,'urgente',author.cookie);await post(base,`/api/requests/${refused.data.id}/decision`,{status:'recusada',decision:'Recusado'},{cookie:admin.cookie});
+  await create(second.id,'normal',admin.cookie);
+  const report=async(query='',cookie=admin.cookie)=>{const r=await fetch(base+'/api/requests/summary.csv?'+query,{headers:{cookie}});return {status:r.status,headers:r.headers,text:await r.text()};};
+  const parse=text=>text.trim().split('\r\n').slice(1).map(line=>line.split(';').map(cell=>cell.replace(/^"|"$/g,'')));
+  const all=await report();assert.equal(all.status,200);assert.match(all.headers.get('content-disposition'),/cosmos-resumo-setores.csv/);assert.equal(all.headers.get('cache-control'),'no-store');
+  assert.deepEqual(parse(all.text),[[first.name,'2','1','1','0','1','1'],[second.name,'2','1','0','1','0','0']]);
+  assert.deepEqual(parse((await report('',author.cookie)).text),[[first.name,'2','1','1','0','1','1'],[second.name,'1','0','0','1','0','0']]);
+  assert.deepEqual(parse((await report('status=aprovada')).text),[[first.name,'1','0','1','0','0','0']]);
+  assert.deepEqual(parse((await report('deadline=overdue&priority=urgente')).text),[[first.name,'1','1','0','0','1','1']]);
+  assert.deepEqual(parse((await report('sector_id='+second.id+'&q=material')).text),[[second.name,'2','1','0','1','0','0']]);
+  for(const query of ['q=inexistente','from=2099-01-01'])assert.deepEqual(parse((await report(query)).text),[]);
+  assert.deepEqual(parse((await report('',other.cookie)).text),[]);
+  assert.equal((await report('from=2026-02-29')).status,400);
+  assert.equal((await report('assignment=mine',author.cookie)).status,403);
+  assert.equal((await report('','')).status,401);
+});
