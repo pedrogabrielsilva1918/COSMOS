@@ -18,3 +18,16 @@ export function matchesRequestPeriod(request, from = '', to = '') {
   const day = `${get('year').padStart(4,'0')}-${get('month')}-${get('day')}`;
   return (!from || day >= from) && (!to || day <= to);
 }
+
+export function periodPreset(preset, now = new Date()) {
+  if (!['today','week','month'].includes(preset)) throw new TypeError('Atalho de período inválido.');
+  const date = new Date(now);
+  if (!Number.isFinite(date.getTime())) throw new RangeError('Data atual inválida.');
+  const parts = dayFormat.formatToParts(date), get = type => parts.find(p => p.type === type).value;
+  const to = `${get('year').padStart(4,'0')}-${get('month')}-${get('day')}`;
+  if (preset === 'today') return {from:to,to};
+  if (preset === 'month') return {from:to.slice(0,8)+'01',to};
+  // Subtrai dias no calendário, sem depender do fuso ou do horário de verão do navegador.
+  const from = new Date(`${to}T12:00:00Z`); from.setUTCDate(from.getUTCDate()-6);
+  return {from:from.toISOString().slice(0,10),to};
+}

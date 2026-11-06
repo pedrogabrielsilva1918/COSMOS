@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Atalhos de período do histórico
+
+No **Histórico**, clique em **Hoje**, **Últimos 7 dias** ou **Este mês** para preencher o intervalo e consultar imediatamente, mantendo o texto da busca. Os atalhos usam o calendário de Brasília: Hoje cobre o dia atual; Últimos 7 dias inclui hoje e os seis dias anteriores; Este mês vai do primeiro dia até hoje.
+
+As datas continuam editáveis. O período aplicado segue para as páginas anteriores e o CSV, como nas consultas manuais. Nenhuma tarefa é agendada e não há alteração nas APIs ou no banco.
+
 ## Histórico por período
 
 No **Histórico**, combine a busca com **A partir de** e **Até**. As datas incluem o dia inteiro no horário de Brasília (`America/Sao_Paulo`); deixe um dos limites vazio para um intervalo aberto. Clique em **Buscar** após alterar o texto ou as datas. **Limpar busca** remove também o período. Atualizar os dados preserva os valores; sair da conta os remove.
