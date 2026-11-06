@@ -283,3 +283,31 @@ test('organização: somente administrador edita a própria, com validação e h
   await post(base,'/api/organization',body,{cookie:a.cookie});after=await workspace(a.cookie);assert.equal(after.history.filter(h=>h.action.startsWith('Organização atualizada:')).length,1);
   const printed=await fetch(base+`/api/requests/${request.data.id}/print`,{headers:{cookie:author.cookie}});assert.equal(printed.status,200);assert.match(await printed.text(),/Organização atualizada &amp; equipe/);
 });
+
+test('nome da própria conta: edição isolada, concorrência e sessões preservadas',async t=>{
+  const {app,base}=await start();t.after(()=>stop(app));
+  const admin=await post(base,'/api/register',{name:'Admin',organization:'Perfil',type:'privada',email:'profile-admin@example.com',password});
+  const other=await post(base,'/api/register',{name:'Outro',organization:'Outra',type:'publica',email:'profile-other@example.com',password});
+  const workspace=async cookie=>(await fetch(base+'/api/workspace',{headers:{cookie}})).json();
+  const sector=(await workspace(admin.cookie)).sectors[0].id;
+  await post(base,'/api/users',{name:'Nome original',email:'profile-user@example.com',password,role:'colaborador',sector_id:sector},{cookie:admin.cookie});
+  const author=await post(base,'/api/login',{email:'profile-user@example.com',password});
+  const second=await post(base,'/api/login',{email:'profile-user@example.com',password});
+  const before=(await workspace(author.cookie)).user,otherBefore=(await workspace(other.cookie)).user;
+  const created=await post(base,'/api/requests',{title:'Pedido de perfil',description:'Teste nome',priority:'normal',sector_id:sector},{cookie:author.cookie});
+  const body={name:'Nome atualizado <teste>',expectedName:before.name,id:otherBefore.id,role:'admin',sector_id:999,email:'outro@example.com'};
+  assert.equal((await post(base,'/api/account/profile',body)).status,401);
+  for(const invalid of [{...body,name:' '},{...body,name:'x'.repeat(121)},{name:'Novo'}])assert.equal((await post(base,'/api/account/profile',invalid,{cookie:author.cookie})).status,400);
+  assert.equal((await post(base,'/api/account/profile',body,{cookie:author.cookie})).status,200);
+  const after=(await workspace(author.cookie)).user;assert.equal(after.name,body.name);
+  for(const key of ['id','email','role','sector_id','active'])assert.equal(after[key],before[key]);
+  assert.equal((await workspace(second.cookie)).user.name,body.name);
+  assert.deepEqual((await workspace(other.cookie)).user,otherBefore);
+  assert.equal((await workspace(admin.cookie)).requests.find(r=>r.id===created.data.id).author,body.name);
+  assert.equal((await post(base,'/api/account/profile',{name:'Sobrescrita antiga',expectedName:before.name},{cookie:author.cookie})).status,409);
+  assert.equal((await post(base,'/api/account/profile',{name:body.name,expectedName:body.name},{cookie:author.cookie})).status,200);
+  let history=(await workspace(admin.cookie)).history;assert.equal(history.filter(h=>h.action.startsWith('Nome da própria conta atualizado:')).length,1);
+  assert.equal((await post(base,'/api/account/profile',{name:'Admin atualizado',expectedName:'Admin'},{cookie:admin.cookie})).status,200);
+  assert.equal((await workspace(admin.cookie)).user.name,'Admin atualizado');
+  assert.equal((await post(base,'/api/login',{email:before.email,password})).status,200);
+});

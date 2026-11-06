@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Editar meu nome
+
+Qualquer pessoa autenticada pode abrir **Minha conta → Editar meu nome**. O nome aceita até 120 caracteres e aparece atualizado na identificação da conta, nos pedidos e comentários vinculados. E-mail, setor, perfil, senha e sessões são preservados. O histórico registra o nome anterior e o novo.
+
+`POST /api/account/profile` exige `name` e `expectedName` com o nome original. A atualização afeta apenas a conta da sessão, revalidada dentro da transação, e salva o histórico junto. Se o nome tiver sido alterado em outra janela, retorna 409 e orienta atualizar e reabrir o formulário. Salvar sem mudanças não cria movimentação. Não há migração do banco.
+
 ## Editar organização
 
 Administradores podem abrir **Organização** no menu para atualizar nome e natureza pública ou privada. Salvar atualiza a identificação no sistema e nas novas impressões; pedidos, pessoas, setores e sessões são preservados. A natureza é uma identificação cadastral e não altera as permissões.

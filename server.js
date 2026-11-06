@@ -226,6 +226,20 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         });
         return json(200, { ok:true, revoked });
       }
+      if (req.method === 'POST' && path === '/api/account/profile') {
+        const body = await readBody(req), name = field(body,'name',120);
+        if (typeof body.expectedName !== 'string' || body.expectedName.length > 120) fail(400,'Reabra Minha conta antes de editar o nome.');
+        transaction(() => {
+          const current = db.prepare('SELECT u.name FROM users u JOIN sessions s ON s.user_id=u.id WHERE u.id=? AND u.org_id=? AND u.active=1 AND s.token=? AND s.expires>?').get(user.id,user.org_id,hash(token),Date.now());
+          if (!current) fail(401,'Entre novamente para continuar.');
+          if (current.name !== body.expectedName) fail(409,'Seu nome foi atualizado em outra janela. Atualize os dados e reabra Minha conta.');
+          if (current.name !== name) {
+            db.prepare('UPDATE users SET name=? WHERE id=? AND org_id=?').run(name,user.id,user.org_id);
+            audit(user,`Nome da própria conta atualizado: ${current.name} → ${name}`);
+          }
+        });
+        return json(200,{ok:true});
+      }
       if (req.method === 'POST' && path === '/api/account/password') {
         const body = await readBody(req);
         const currentPassword = field(body, 'currentPassword', 128);
