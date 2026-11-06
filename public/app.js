@@ -15,6 +15,7 @@ const deadlineBadge = request => `<span class="deadline-label ${request.is_overd
 const assigneeBadge = request => `<span class="request-assignee">${escapeHTML(request.assignee_name || 'Não definido')}${request.status === 'pendente' && request.assigned_to && !request.assignee_available ? '<small>Reatribuição necessária</small>' : ''}</span>`;
 let state, currentView = 'dashboard', registering = false, noticeTimer, workspaceEpoch = 0, refreshSequence = 0;
 let notificationGeneration = 0, notificationNextBefore = null, notificationCount = 0, notificationReadThrough = null;
+let requestPage = 1;
 let historyGeneration = 0, historyNextBefore = null, historyLoadedQuery = '', historyCount = 0;
 async function api(path, body) {
   const epoch = workspaceEpoch, sequence = refreshSequence;
@@ -28,6 +29,7 @@ async function api(path, body) {
 }
 function notify(message) { clearTimeout(noticeTimer); $('#notice').textContent = message; $('#notice').hidden = false; noticeTimer = setTimeout(() => { $('#notice').hidden = true; }, 6000); }
 function clearRequestFilters() {
+  requestPage = 1;
   $('#request-advanced').open = false;
   $('#request-order').value = 'recent';
   for (const id of ['request-search', 'status-filter', 'deadline-filter', 'assignment-filter', 'sector-filter', 'priority-filter', 'created-from', 'created-to']) $(`#${id}`).value = '';
@@ -251,7 +253,7 @@ $('#sector-overview').addEventListener('click', event => {
   clearRequestFilters(); $('#sector-filter').value = button.dataset.sectorRequests;
   renderRequests(); setView('requests');
 });
-function renderRequests() {
+function renderRequests({ keepPage = false } = {}) {
   const search = $('#request-search').value.trim().toLocaleLowerCase('pt-BR'); const status = $('#status-filter').value;
   const overdueOnly = $('#deadline-filter').value === 'overdue';
   const assignment = state.user.role === 'admin' ? $('#assignment-filter').value : '';
@@ -263,7 +265,17 @@ function renderRequests() {
   if (error) $('#request-advanced').open = true;
   $('#export-requests').disabled = Boolean(error); $('#export-sector-summary').disabled = Boolean(error);
   const filtered = state.requests.filter(r => matchesRequestPeriod(r,from,to) && (!sector || r.sector_id === Number(sector)) && (!priority || r.priority === priority) && (!status || r.status === status) && (!overdueOnly || r.is_overdue) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === state.user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))) && matchesRequestSearch(r, search));
-  $('#all-requests').innerHTML = table(orderRequests(filtered, $('#request-order').value));
+  const ordered = orderRequests(filtered, $('#request-order').value), pageSize = 25;
+  const pages = Math.max(1,Math.ceil(ordered.length/pageSize));
+  requestPage = keepPage ? Math.min(Math.max(1,requestPage),pages) : 1;
+  const offset = (requestPage-1)*pageSize;
+  $('#all-requests').innerHTML = table(ordered.slice(offset,offset+pageSize));
+  for (const nav of document.querySelectorAll('.request-pagination')) {
+    nav.hidden = pages <= 1;
+    nav.querySelector('[data-request-page=previous]').disabled = requestPage === 1;
+    nav.querySelector('[data-request-page=next]').disabled = requestPage === pages;
+    nav.querySelector('[data-request-page-label]').textContent = `Página ${requestPage} de ${pages}`;
+  }
   $('#request-summary').hidden = Boolean(error);
   const counts = [
     ['Pendentes', filtered.filter(r => r.status === 'pendente').length, 'Aguardando decisão', 'clock'],
@@ -272,8 +284,14 @@ function renderRequests() {
     ['Pendentes vencidas', filtered.filter(r => r.status === 'pendente' && r.is_overdue).length, 'Incluídas nas pendentes', 'clock']
   ];
   $('#request-summary-metrics').innerHTML = counts.map(([label,value,subtitle,symbol]) => `<article class="metric"><span class="metric-symbol">${icon(symbol)}</span><div class="metric-content"><span class="metric-label">${label}</span><strong>${value}</strong><small>${subtitle}</small></div></article>`).join('');
-  $('#request-results').textContent = `${filtered.length} de ${state.requests.length} ${state.requests.length === 1 ? 'solicitação' : 'solicitações'}`;
+  $('#request-results').textContent = filtered.length ? `Exibindo ${offset+1}–${Math.min(offset+pageSize,filtered.length)} de ${filtered.length} resultados · ${state.requests.length} solicitações no total` : `Nenhum resultado · ${state.requests.length} solicitações no total`;
 }
+$('#requests-view').addEventListener('click',event => {
+  const button = event.target.closest('[data-request-page]');
+  if (!button || button.disabled || !state) return;
+  requestPage += button.dataset.requestPage === 'next' ? 1 : -1;
+  renderRequests({keepPage:true});
+});
 $('#created-from').onchange = renderRequests; $('#created-to').onchange = renderRequests;
 $('#request-search').oninput = renderRequests; $('#status-filter').onchange = renderRequests;
 $('#deadline-filter').onchange = renderRequests;
