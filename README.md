@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Encerrar outros acessos
+
+Em **Minha conta → Encerrar outros acessos**, qualquer pessoa pode invalidar as demais sessões da própria conta, mantendo a sessão atual e a senha. Os outros navegadores precisarão entrar novamente na próxima requisição ao servidor. O comando não altera contas de colegas nem de outras organizações. Repetir sem outros acessos não altera nada. Esta ação não troca a senha; se ela foi compartilhada, use também a troca de senha.
+
+`POST /api/account/sessions/revoke-others`, com JSON `{}`, retorna `ok` e `revoked` (quantidade de registros de sessão removidos, incluindo eventuais registros expirados). A revogação e o histórico são gravados juntos; não há alteração no esquema do banco.
+
 ## Consultar todo o histórico
 
 Administradores podem acessar **Histórico**, pesquisar por ação ou nome da pessoa responsável e clicar em **Buscar** ou pressionar Enter. A consulta ignora acentos e maiúsculas. Se houver várias palavras, todas precisam aparecer na ação ou no nome, em qualquer ordem. O nome é o cadastro atual da pessoa; a ação mantém o texto registrado na época.

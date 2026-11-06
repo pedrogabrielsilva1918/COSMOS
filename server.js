@@ -197,6 +197,17 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         db.prepare('DELETE FROM sessions WHERE token=?').run(hash(token));
         res.setHeader('Set-Cookie', `cosmos=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? '; Secure' : ''}`); return json(200, { ok: true });
       }
+      if (req.method === 'POST' && path === '/api/account/sessions/revoke-others') {
+        await readBody(req);
+        const revoked = transaction(() => {
+          const current = db.prepare('SELECT user_id FROM sessions WHERE token=? AND expires>?').get(hash(token),Date.now());
+          if (!current || current.user_id !== user.id) fail(401, 'Entre novamente para continuar.');
+          const result = db.prepare('DELETE FROM sessions WHERE user_id=? AND token<>?').run(user.id,hash(token));
+          if (result.changes) audit(user, 'Outros acessos da própria conta encerrados');
+          return result.changes;
+        });
+        return json(200, { ok:true, revoked });
+      }
       if (req.method === 'POST' && path === '/api/account/password') {
         const body = await readBody(req);
         const currentPassword = field(body, 'currentPassword', 128);
