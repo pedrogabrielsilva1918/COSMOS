@@ -2,6 +2,10 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Atalhos de período das solicitações
+
+Em **Solicitações → Mais filtros e ordenação**, use **Hoje**, **Últimos 7 dias** ou **Este mês** para preencher e aplicar o período de criação. Os atalhos usam as mesmas datas de Brasília do Histórico e preservam busca, situação, setor, prioridade e fila. A lista volta à primeira página; o resumo e os dois CSVs consideram todos os resultados filtrados. As datas continuam editáveis, e **Limpar filtros** remove o período.
+
 ## Atalhos de período do histórico
 
 No **Histórico**, clique em **Hoje**, **Últimos 7 dias** ou **Este mês** para preencher o intervalo e consultar imediatamente, mantendo o texto da busca. Os atalhos usam o calendário de Brasília: Hoje cobre o dia atual; Últimos 7 dias inclui hoje e os seis dias anteriores; Este mês vai do primeiro dia até hoje.

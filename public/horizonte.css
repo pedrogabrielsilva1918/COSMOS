@@ -79,3 +79,5 @@ dialog.request-dialog{width:min(760px,calc(100vw - 40px));max-width:760px;max-he
 .history-filters{align-items:flex-end}.history-filters>.history-date{flex:0 0 170px;font-size:11px;min-width:0}.history-filters .history-date input{height:43px;min-height:43px;margin-top:4px;padding:9px 12px}@media(max-width:760px){.history-filters{align-items:stretch}.history-filters>.history-date{flex:initial;width:100%}.history-filters .history-date input{height:44px;min-height:44px}}
 
 .history-period-shortcuts{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 12px}.history-period-shortcuts>span{font-size:11px;color:#65717a;margin-right:3px}.history-period-shortcuts .secondary{font-size:11px;min-height:34px;padding:7px 11px;background:#edf3ef;color:#376653}@media(max-width:760px){.history-period-shortcuts .secondary{min-height:44px}.history-period-shortcuts{gap:7px}}
+
+#requests-view .request-period-shortcuts{margin:14px 0 0}
