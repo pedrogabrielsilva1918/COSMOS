@@ -483,3 +483,7 @@ Este MVP não é uma implantação de produção. Antes de usar dados reais de f
 Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail, anexos, notificações por e-mail ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
 
 Use `npm run backup` para gerar uma cópia SQLite autônoma e verificada. Como alternativa manual, pare o servidor e copie o diretório `data` completo, incluindo eventuais arquivos WAL/SHM. Guarde uma cópia fora do Codespace e limite o acesso.
+
+### Exportação em planilha formatada
+
+Os botões de exportação de Solicitações, Resumo por setor, Pessoas e Histórico baixam arquivos Excel (.xlsx), com cabeçalho verde, linhas alternadas suaves, quebra de texto, colunas ajustadas, filtros no cabeçalho e primeira linha congelada. Todos os resultados permitidos e filtrados são incluídos, mantendo a ordenação existente. Contagens permanecem numéricas e textos são gravados como texto, sem executar fórmulas. Datas e horários mantêm as indicações de formato e fuso dos cabeçalhos. As rotas CSV continuam disponíveis para integrações; as novas rotas usam a extensão .xlsx com os mesmos filtros e permissões. Não exige pacote adicional ou migração do banco.
