@@ -12,7 +12,7 @@ const formatDeadline = value => value ? String(value).split('-').reverse().join(
 const deadlineBadge = request => `<span class="deadline-label ${request.is_overdue ? 'deadline-late' : ''}">${escapeHTML(formatDeadline(request.due_date))}${request.is_overdue ? '<small>Prazo vencido</small>' : ''}</span>`;
 const assigneeBadge = request => `<span class="request-assignee">${escapeHTML(request.assignee_name || 'Não definido')}${request.status === 'pendente' && request.assigned_to && !request.assignee_available ? '<small>Reatribuição necessária</small>' : ''}</span>`;
 let state, currentView = 'dashboard', registering = false, noticeTimer, workspaceEpoch = 0, refreshSequence = 0;
-let notificationGeneration = 0, notificationNextBefore = null, notificationCount = 0;
+let notificationGeneration = 0, notificationNextBefore = null, notificationCount = 0, notificationReadThrough = null;
 let historyGeneration = 0, historyNextBefore = null, historyLoadedQuery = '', historyCount = 0;
 async function api(path, body) {
   const epoch = workspaceEpoch, sequence = refreshSequence;
@@ -111,10 +111,11 @@ function table(requests) {
   return `<table class="data-table request-table"><thead><tr><th>SOLICITAÇÃO</th><th>SETOR</th><th>SITUAÇÃO</th><th>PRIORIDADE</th><th>PRAZO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${requests.map(r => `<tr><td data-label="Solicitação"><span class="request-title">${escapeHTML(r.title)}</span><span class="request-id">COS-${String(r.id).padStart(5, '0')} · ${escapeHTML(r.author)}</span><span class="request-assignee-line">Responsável: ${assigneeBadge(r)}</span></td><td data-label="Setor">${escapeHTML(r.sector)}</td><td data-label="Situação">${pill(r.status)}</td><td data-label="Prioridade"><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase() + r.priority.slice(1))}</span></td><td data-label="Prazo">${deadlineBadge(r)}</td><td data-label="Ações"><button class="row-open" data-request="${r.id}" aria-label="Abrir solicitação ${r.id}">Abrir ↗</button></td></tr>`).join('')}</tbody></table>`;
 }
 function updateNotificationBadge(count) {
+  $('#notification-read-all').disabled = count === 0 || notificationReadThrough === null;
   $('#notification-count').textContent = count; $('#notification-count').hidden = count === 0;
 }
 function resetNotifications() {
-  notificationGeneration++; notificationNextBefore = null; notificationCount = 0;
+  notificationGeneration++; notificationNextBefore = null; notificationCount = 0; notificationReadThrough = null;
   $('#notification-list').replaceChildren(); $('#notification-results').textContent = ''; $('#notification-error').textContent = ''; $('#notification-older').hidden = true; $('#notification-older').disabled = false; updateNotificationBadge(0);
 }
 async function loadNotifications(before = null) {
@@ -129,12 +130,26 @@ async function loadNotifications(before = null) {
     else $('#notification-list').insertAdjacentHTML('beforeend',html);
     notificationCount = before === null ? data.notifications.length : notificationCount + data.notifications.length;
     notificationNextBefore = data.nextBefore; $('#notification-older').hidden = notificationNextBefore === null;
+    if (before === null) notificationReadThrough = data.notifications[0]?.id ?? null;
     updateNotificationBadge(data.unreadCount); state.notification_unread = data.unreadCount;
     $('#notification-results').textContent = `${notificationCount} ${notificationCount === 1 ? 'aviso exibido' : 'avisos exibidos'} · ${data.unreadCount} não ${data.unreadCount === 1 ? 'lido' : 'lidos'}`;
   } catch(error) {
     if (generation === notificationGeneration && epoch === workspaceEpoch) { $('#notification-error').textContent = error.message; $('#notification-results').textContent = notificationCount ? 'Não foi possível atualizar. Os avisos anteriores foram mantidos.' : ''; }
   } finally { if (generation === notificationGeneration && epoch === workspaceEpoch) $('#notification-older').disabled = false; }
 }
+$('#notification-read-all').onclick = async () => {
+  if (!state || notificationReadThrough === null) return;
+  const epoch = workspaceEpoch, through = notificationReadThrough;
+  const button = $('#notification-read-all'); button.disabled = true; let saved = false;
+  try {
+    const data = await api('/notifications/read-all', { through }); saved = true;
+    if (epoch !== workspaceEpoch || !state) return;
+    state.notification_unread = data.unreadCount; updateNotificationBadge(data.unreadCount);
+    await refresh();
+    if (epoch === workspaceEpoch && state) notify(`${data.changed} aviso(s) marcado(s) como lido(s).`);
+  } catch(error) { if (epoch === workspaceEpoch) notify((saved ? 'Leitura salva, mas a atualização falhou. ' : '') + error.message); }
+  finally { if (epoch === workspaceEpoch && state) updateNotificationBadge(state.notification_unread); }
+};
 $('#notification-older').onclick = () => { if (notificationNextBefore !== null) loadNotifications(notificationNextBefore); };
 $('#notification-list').addEventListener('click', async event => {
   const button = event.target.closest('[data-notification]'); if (!button) return;

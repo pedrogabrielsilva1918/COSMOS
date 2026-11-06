@@ -68,3 +68,30 @@ test('decisão e histórico são revertidos se a gravação da notificação fal
   const repair=new DatabaseSync(c.databasePath);repair.exec('DROP TRIGGER fail_notification');repair.close();
   assert.equal((await c.decide(r.data.id)).status,200);assert.equal((await c.call('/api/notifications',undefined,author.cookie)).data.unreadCount,1);
 });
+
+test('leitura em lote preserva avisos novos, outros usuários e datas já registradas',async t=>{
+  const c=await setup(t),author=await c.person('lote@uma.com'),colleague=await c.person('outro-lote@uma.com');
+  const other=await c.call('/api/register',{name:'Externo lote',organization:'Outra lote',type:'publica',email:'lote@outra.com',password});
+  for(let i=0;i<52;i++){const r=await c.request(author.cookie);assert.equal((await c.decide(r.data.id)).status,200);}
+  const first=(await c.call('/api/notifications',undefined,author.cookie)).data;
+  const through=first.notifications[0].id,alreadyRead=first.notifications[1].id;
+  await c.call(`/api/notifications/${alreadyRead}/read`,{},author.cookie);
+  const stamp=(await c.call('/api/notifications',undefined,author.cookie)).data.notifications.find(n=>n.id===alreadyRead).read_at;
+  const newer=await c.request(author.cookie);await c.decide(newer.data.id);
+  const colleagueRequest=await c.request(colleague.cookie);await c.decide(colleagueRequest.data.id);
+  const db=new DatabaseSync(c.databasePath);
+  const externalAuthor=db.prepare('SELECT id,org_id FROM users WHERE email=?').get('lote@outra.com');
+  const externalSector=db.prepare('SELECT id FROM sectors WHERE org_id=? LIMIT 1').get(externalAuthor.org_id).id;
+  const externalRequest=db.prepare("INSERT INTO requests(org_id,user_id,sector_id,title,description,priority) VALUES (?,?,?,'Externo','Teste','normal')").run(externalAuthor.org_id,externalAuthor.id,externalSector).lastInsertRowid;
+  db.prepare("INSERT INTO notifications(org_id,user_id,request_id,actor_id,message) VALUES (?,?,?,?,'Aviso externo')").run(externalAuthor.org_id,externalAuthor.id,externalRequest,externalAuthor.id);db.close();
+  for(const through of [null,0,-1,1.5,'52',9007199254740992]) assert.equal((await c.call('/api/notifications/read-all',{through},author.cookie)).status,400);
+  assert.equal((await c.call('/api/notifications/read-all',{through})).status,401);
+  const read=await c.call('/api/notifications/read-all',{through},author.cookie);assert.equal(read.status,200);assert.equal(read.data.changed,51);assert.equal(read.data.unreadCount,1);
+  const repeated=await c.call('/api/notifications/read-all',{through},author.cookie);assert.equal(repeated.data.changed,0);
+  const notes=(await c.call('/api/notifications',undefined,author.cookie)).data;
+  assert.equal(notes.notifications.find(n=>n.id===alreadyRead).read_at,stamp);
+  assert.equal(notes.notifications[0].request_id,newer.data.id);assert.equal(notes.notifications[0].read_at,null);
+  const older=(await c.call('/api/notifications?before='+notes.nextBefore,undefined,author.cookie)).data;assert.ok(older.notifications.every(n=>n.read_at));
+  assert.equal((await c.call('/api/notifications',undefined,colleague.cookie)).data.unreadCount,1);
+  assert.equal((await c.call('/api/notifications',undefined,other.cookie)).data.unreadCount,1);
+});

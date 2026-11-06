@@ -4,6 +4,9 @@ Gestão administrativa para empresas privadas e organizações públicas. Primei
 
 ## Notificações de decisões
 
+**Marcar todas como lidas** alcança seus avisos até o mais recente da lista carregada, incluindo páginas anteriores. Avisos recebidos depois desse limite permanecem não lidos. A ação atualiza a lista e o contador; pode ser repetida sem alterar a data de leitura já registrada.
+
+
 Quando um administrador aprova ou recusa um pedido, o solicitante recebe um aviso interno em **Notificações**. O contador do menu mostra seus avisos não lidos. **Atualizar dados** busca novas decisões; não há atualização automática, e-mail ou notificação no dispositivo.
 
 A central apresenta páginas de até 50 avisos, com **Carregar avisos anteriores**. **Marcar como lida** atualiza apenas seu próprio aviso. **Ver pedido** também marca o aviso como lido, atualiza os dados e abre o pedido com a decisão atual. Essas ações recarregam a primeira página da central. Um administrador recebe os avisos dos próprios pedidos, sem acesso aos avisos de outras pessoas.
@@ -317,8 +320,10 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/account/password` | Troca de senha da própria conta; exige senha atual |
 | GET | `/api/workspace` | Dados visíveis ao usuário autenticado |
 | GET | `/api/notifications?before=ID` | Avisos próprios da conta e organização da sessão |
+| POST | `/api/notifications/read-all` | Marca avisos próprios até `through` (ID inteiro positivo); preserva novos avisos |
 | POST | `/api/notifications/:id/read` | Marca aviso próprio como lido; JSON `{}` |
 | GET | `/api/notifications?before=ID` | Avisos próprios da conta e organização da sessão |
+| POST | `/api/notifications/read-all` | Marca avisos próprios até `through` (ID inteiro positivo); preserva novos avisos |
 | POST | `/api/notifications/:id/read` | Marca aviso próprio como lido; JSON `{}` |
 | GET | `/api/history?q=busca&before=ID` | Administrador da organização; páginas de até 50 ações |
 | POST | `/api/sectors` | Administrador |

@@ -228,6 +228,12 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const notifications = rows.slice(0,50);
         return json(200, { notifications, unreadCount: unreadNotifications(user), nextBefore: rows.length > 50 ? notifications.at(-1).id : null });
       }
+      if (req.method === 'POST' && path === '/api/notifications/read-all') {
+        const { through } = await readBody(req);
+        if (!Number.isSafeInteger(through) || through <= 0) fail(400, 'Limite de notificações inválido.');
+        const changed = transaction(() => db.prepare("UPDATE notifications SET read_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE org_id=? AND user_id=? AND id<=? AND read_at IS NULL").run(user.org_id,user.id,through).changes);
+        return json(200, { ok:true, changed, unreadCount: unreadNotifications(user) });
+      }
       const notificationReadMatch = /^\/api\/notifications\/(\d+)\/read$/.exec(path);
       if (req.method === 'POST' && notificationReadMatch) {
         await readBody(req);
