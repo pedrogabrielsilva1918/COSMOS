@@ -12,6 +12,7 @@ const formatDeadline = value => value ? String(value).split('-').reverse().join(
 const deadlineBadge = request => `<span class="deadline-label ${request.is_overdue ? 'deadline-late' : ''}">${escapeHTML(formatDeadline(request.due_date))}${request.is_overdue ? '<small>Prazo vencido</small>' : ''}</span>`;
 const assigneeBadge = request => `<span class="request-assignee">${escapeHTML(request.assignee_name || 'Não definido')}${request.status === 'pendente' && request.assigned_to && !request.assignee_available ? '<small>Reatribuição necessária</small>' : ''}</span>`;
 let state, currentView = 'dashboard', registering = false, noticeTimer, workspaceEpoch = 0, refreshSequence = 0;
+let historyGeneration = 0, historyNextBefore = null, historyLoadedQuery = '', historyCount = 0;
 async function api(path, body) {
   const epoch = workspaceEpoch, sequence = refreshSequence;
   const res = await fetch(`/api${path}`, { method: body === undefined ? 'GET' : 'POST', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -27,7 +28,7 @@ function clearRequestFilters() {
   $('#request-order').value = 'recent';
   for (const id of ['request-search', 'status-filter', 'deadline-filter', 'assignment-filter', 'sector-filter', 'priority-filter']) $(`#${id}`).value = '';
 }
-function showAuth() { workspaceEpoch++; refreshSequence++; $('#refresh-workspace').disabled = false; $('#refresh-workspace').textContent = 'Atualizar dados ↻'; $('#refresh-workspace').removeAttribute('aria-busy'); $('#workspace-updated').textContent = ''; currentView = 'dashboard'; clearRequestFilters(); clearSectorFilters(); clearPeopleFilters(); $('#workspace').hidden = true; $('#auth').hidden = false; }
+function showAuth() { workspaceEpoch++; refreshSequence++; $('#refresh-workspace').disabled = false; $('#refresh-workspace').textContent = 'Atualizar dados ↻'; $('#refresh-workspace').removeAttribute('aria-busy'); $('#workspace-updated').textContent = ''; currentView = 'dashboard'; clearRequestFilters(); clearSectorFilters(); clearPeopleFilters(); resetHistory(); $('#workspace').hidden = true; $('#auth').hidden = false; }
 function authMode(value) {
   registering = value;
   $('#registration-fields').hidden = !value;
@@ -76,7 +77,7 @@ const viewInfo = {
   requests: ['Solicitações', 'DO PEDIDO À DECISÃO', 'Crie, acompanhe e consulte as solicitações.', '+ Nova solicitação'],
   sectors: ['Setores', 'UMA ESTRUTURA CONECTADA', 'Organize as áreas que fazem sua organização acontecer.', '+ Novo setor'],
   people: ['Pessoas', 'QUEM FAZ ACONTECER', 'Cadastre sua equipe e defina os perfis de acesso.', '+ Nova pessoa'],
-  history: ['Histórico', 'CADA ETAPA REGISTRADA', 'Consulte as últimas 50 ações da sua organização.', null]
+  history: ['Histórico', 'CADA ETAPA REGISTRADA', 'Consulte e pesquise as ações registradas da sua organização.', null]
 };
 function setView(view) {
   if (!state || !viewInfo[view] || (['people', 'history'].includes(view) && state.user.role !== 'admin')) return;
@@ -89,6 +90,7 @@ function setView(view) {
   $('#page-title').textContent = title; $('#breadcrumb').textContent = title; $('#page-kicker').textContent = kicker; $('#page-description').textContent = description;
   $('#main-action').textContent = action || ''; $('#main-action').hidden = !action || (view === 'sectors' && state.user.role !== 'admin');
   if (changedView) window.scrollTo({ top: 0, behavior: 'auto' });
+  if (view === 'history') return loadHistory();
 }
 for (const button of document.querySelectorAll('[data-view]')) button.onclick = () => setView(button.dataset.view);
 $('#see-all').onclick = () => setView('requests');
@@ -105,6 +107,37 @@ function table(requests) {
   if (!requests.length) return '<div class="empty"><strong>Nenhuma solicitação por aqui.</strong>Crie uma solicitação ou ajuste os filtros para começar.</div>';
   return `<table class="data-table request-table"><thead><tr><th>SOLICITAÇÃO</th><th>SETOR</th><th>SITUAÇÃO</th><th>PRIORIDADE</th><th>PRAZO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${requests.map(r => `<tr><td data-label="Solicitação"><span class="request-title">${escapeHTML(r.title)}</span><span class="request-id">COS-${String(r.id).padStart(5, '0')} · ${escapeHTML(r.author)}</span><span class="request-assignee-line">Responsável: ${assigneeBadge(r)}</span></td><td data-label="Setor">${escapeHTML(r.sector)}</td><td data-label="Situação">${pill(r.status)}</td><td data-label="Prioridade"><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase() + r.priority.slice(1))}</span></td><td data-label="Prazo">${deadlineBadge(r)}</td><td data-label="Ações"><button class="row-open" data-request="${r.id}" aria-label="Abrir solicitação ${r.id}">Abrir ↗</button></td></tr>`).join('')}</tbody></table>`;
 }
+function historyBusy(busy) {
+  $('#history-submit').disabled = busy; $('#history-older').disabled = busy;
+  if (busy) $('#history-list').setAttribute('aria-busy', 'true'); else $('#history-list').removeAttribute('aria-busy');
+}
+function resetHistory() {
+  historyGeneration++; historyNextBefore = null; historyLoadedQuery = ''; historyCount = 0;
+  $('#history-search').value = ''; $('#history-list').replaceChildren(); $('#history-results').textContent = ''; $('#history-error').textContent = ''; $('#history-older').hidden = true; historyBusy(false);
+}
+async function loadHistory(before = null) {
+  if (!state || state.user.role !== 'admin') { resetHistory(); return; }
+  const generation = ++historyGeneration, epoch = workspaceEpoch;
+  const query = before === null ? $('#history-search').value.trim() : historyLoadedQuery;
+  historyBusy(true); $('#history-error').textContent = ''; $('#history-results').textContent = 'Consultando histórico…';
+  try {
+    const params = new URLSearchParams({ q: query }); if (before !== null) params.set('before', before);
+    const data = await api(`/history?${params}`);
+    if (generation !== historyGeneration || epoch !== workspaceEpoch || !state) return;
+    const html = data.history.map(h => `<article class="history-item"><span class="history-dot">${icon('clock')}</span><div>${escapeHTML(h.action)}<small>${escapeHTML(h.actor)} · ${date(h.created_at)}</small></div></article>`).join('');
+    if (before === null) $('#history-list').innerHTML = html || '<div class="empty"><strong>Nenhum registro encontrado.</strong>Experimente outra busca ou consulte todas as ações.</div>';
+    else $('#history-list').insertAdjacentHTML('beforeend', html);
+    historyCount = before === null ? data.history.length : historyCount + data.history.length;
+    historyLoadedQuery = query; historyNextBefore = data.nextBefore; $('#history-older').hidden = historyNextBefore === null;
+    $('#history-results').textContent = `${historyCount} ${historyCount === 1 ? 'registro exibido' : 'registros exibidos'}${historyNextBefore !== null ? ' · Há registros anteriores.' : ''}`;
+  } catch (error) {
+    if (generation === historyGeneration && epoch === workspaceEpoch) { $('#history-error').textContent = error.message; $('#history-results').textContent = historyCount ? 'A consulta falhou. Os resultados anteriores foram mantidos.' : 'Não foi possível consultar o histórico.'; }
+  } finally { if (generation === historyGeneration && epoch === workspaceEpoch) historyBusy(false); }
+}
+$('#history-search-form').onsubmit = event => { event.preventDefault(); loadHistory(); };
+$('#history-clear').onclick = () => { $('#history-search').value = ''; loadHistory(); };
+$('#history-older').onclick = () => { if (historyNextBefore !== null) loadHistory(historyNextBefore); };
+$('#history-search').oninput = () => { historyGeneration++; historyBusy(false); $('#history-older').hidden = true; $('#history-error').textContent = ''; $('#history-results').textContent = 'Clique em Buscar ou pressione Enter para consultar.'; };
 function clearPeopleFilters() {
   for (const id of ['people-search', 'people-sector-filter', 'people-role-filter', 'people-access-filter']) $(`#${id}`).value = '';
 }
@@ -208,8 +241,9 @@ async function refresh() {
     $('#people-sector-filter').innerHTML = '<option value="">Todos os setores</option>' + state.sectors.map(s => `<option value="${s.id}">${escapeHTML(s.name)}${s.active ? '' : ' (desativado)'}</option>`).join('');
     $('#people-sector-filter').value = state.sectors.some(s => String(s.id) === selectedPeopleSector) ? selectedPeopleSector : '';
     renderPeople();
-    $('#history-list').innerHTML = state.history.map(h => `<article class="history-item"><span class="history-dot">${icon('clock')}</span><div>${escapeHTML(h.action)}<small>${escapeHTML(h.actor)} · ${date(h.created_at)}</small></div></article>`).join('') || '<div class="empty">Nenhuma movimentação registrada.</div>';
-    setView(currentView);
+    if (!admin) resetHistory();
+    await setView(currentView);
+    if (epoch !== workspaceEpoch || sequence !== refreshSequence) return;
     $('#workspace-updated').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
   } finally {
     if (epoch === workspaceEpoch && sequence === refreshSequence) { button.disabled = false; button.textContent = 'Atualizar dados ↻'; button.removeAttribute('aria-busy'); }

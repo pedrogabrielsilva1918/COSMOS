@@ -2,6 +2,14 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Consultar todo o histórico
+
+Administradores podem acessar **Histórico**, pesquisar por ação ou nome da pessoa responsável e clicar em **Buscar** ou pressionar Enter. A consulta ignora acentos e maiúsculas. Se houver várias palavras, todas precisam aparecer na ação ou no nome, em qualquer ordem. O nome é o cadastro atual da pessoa; a ação mantém o texto registrado na época.
+
+A página apresenta até 50 registros mais recentes por vez. **Carregar registros anteriores** acrescenta a próxima página da mesma busca, sem repetir os já carregados. O contador indica quantos registros foram exibidos, e não o total de toda a base. **Limpar busca** retorna à primeira página de todas as ações. **Atualizar dados** e voltar à página recarregam a primeira página com a busca preenchida; sair da conta limpa a consulta. Falhas de leitura mostram uma mensagem e mantêm os resultados anteriores. Esse histórico continua sendo um registro de aplicação, sem garantia de imutabilidade.
+
+O endpoint `GET /api/history?q=texto&before=ID` é exclusivo de administradores e consulta somente a organização da sessão. Ele valida o cursor e a busca, usa parâmetros SQL e retorna `history` e `nextBefore`. As páginas usam o ID do último registro para continuar a consulta mesmo que novas ações cheguem. A inicialização acrescenta apenas um índice de consulta ao histórico, sem apagar ou transformar registros. A resposta antiga `history` do workspace permanece limitada a 50 ações por compatibilidade.
+
 ## Encontrar pessoas da equipe
 
 Administradores podem pesquisar em **Pessoas** por nome, e-mail ou nome do setor, sem diferenciar maiúsculas ou acentos. Várias palavras precisam aparecer nos campos pesquisados, em qualquer ordem. Combine a busca com setor, perfil (administrador ou colaborador) e acesso (ativo ou desativado). O setor é o cadastro atual da pessoa, e setores desativados também podem ser consultados.
@@ -52,7 +60,7 @@ O tema está em `public/horizonte.css`, aplicado após os estilos estruturais. A
 - Colaboradores veem apenas seus pedidos; administradores veem todos os pedidos da organização.
 - Painel com indicadores, busca por título/protocolo e filtro por situação.
 - Exportação dos pedidos filtrados para CSV compatível com Excel.
-- Histórico das últimas 50 ações administrativas e de solicitações.
+- Histórico administrativo pesquisável, com páginas de 50 registros e acesso aos anteriores.
 - Layout responsivo para computador, tablet e celular.
 
 ## Executar no computador
@@ -298,6 +306,7 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 | POST | `/api/logout` | Autenticado |
 | POST | `/api/account/password` | Troca de senha da própria conta; exige senha atual |
 | GET | `/api/workspace` | Dados visíveis ao usuário autenticado |
+| GET | `/api/history?q=busca&before=ID` | Administrador da organização; páginas de até 50 ações |
 | POST | `/api/sectors` | Administrador |
 | POST | `/api/sectors/suggested` | Administrador; JSON `{}`; inclui os três sugeridos sem duplicação |
 | POST | `/api/sectors/:id` | Administrador da mesma organização; edita nome e situação |

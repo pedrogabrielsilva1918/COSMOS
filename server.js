@@ -80,6 +80,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
   if (databasePath !== ':memory:') mkdirSync(dirname(databasePath), { recursive: true });
   const clientAddress = createClientAddress({ trustProxy, trustedProxyIps });
   const db = new DatabaseSync(databasePath);
+  db.function('cosmos_search_text', { deterministic: true }, value => String(value ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('pt-BR'));
   db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS organizations(id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('publica','privada')));
     CREATE TABLE IF NOT EXISTS sectors(id INTEGER PRIMARY KEY, org_id INTEGER NOT NULL REFERENCES organizations(id), name TEXT NOT NULL, UNIQUE(org_id,name));
@@ -115,7 +116,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
   if (!db.prepare('PRAGMA table_info(audit)').all().some(column => column.name === 'request_id')) {
     db.exec('ALTER TABLE audit ADD COLUMN request_id INTEGER REFERENCES requests(id)');
   }
-  db.exec('CREATE INDEX IF NOT EXISTS audit_request ON audit(org_id,request_id,id)');
+  db.exec('CREATE INDEX IF NOT EXISTS audit_request ON audit(org_id,request_id,id); CREATE INDEX IF NOT EXISTS audit_org_cursor ON audit(org_id,id)');
   const rate = new Map();
   const janitor = setInterval(() => {
     const now = Date.now();
@@ -213,6 +214,22 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         });
         res.setHeader('Set-Cookie', `cosmos=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? '; Secure' : ''}`);
         return json(200, { ok: true });
+      }
+      if (req.method === 'GET' && path === '/api/history') {
+        admin(user);
+        const rawBefore = url.searchParams.get('before');
+        if (rawBefore !== null && !/^[1-9]\d*$/.test(rawBefore)) fail(400, 'Cursor de histórico inválido.');
+        const before = rawBefore === null ? Number.MAX_SAFE_INTEGER : Number(rawBefore);
+        if (!Number.isSafeInteger(before) || before <= 0) fail(400, 'Cursor de histórico inválido.');
+        const query = (url.searchParams.get('q') || '').trim();
+        if (query.length > 200) fail(400, 'A busca deve ter até 200 caracteres.');
+        const terms = query.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('pt-BR').split(/\s+/).filter(Boolean);
+        const params = [user.org_id, before];
+        let conditions = 'a.org_id=? AND a.id<?';
+        for (const term of terms) { conditions += " AND instr(cosmos_search_text(a.action || ' ' || u.name),?)>0"; params.push(term); }
+        const rows = db.prepare(`SELECT a.id,a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id AND u.org_id=a.org_id WHERE ${conditions} ORDER BY a.id DESC LIMIT 51`).all(...params);
+        const history = rows.slice(0, 50);
+        return json(200, { history, nextBefore: rows.length > 50 ? history.at(-1).id : null });
       }
       if (req.method === 'GET' && path === '/api/workspace') {
         const organization = db.prepare('SELECT * FROM organizations WHERE id=?').get(user.org_id);
