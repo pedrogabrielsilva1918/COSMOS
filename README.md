@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Link direto para uma solicitação
+
+Na janela do pedido, **Copiar link** gera um endereço como `https://seu-cosmos/?pedido=9`. Ele contém somente o ID, sem credenciais ou dados do pedido. Ao abrir, o COSMOS exige uma sessão válida e procura o pedido entre os registros já autorizados no workspace. Sem sessão, o destino é mantido até concluir o login. Pedidos indisponíveis à conta mostram uma mensagem genérica. IDs inválidos são rejeitados.
+
+O link não concede acesso e não é um endereço público para o pedido. A pessoa deve ter acesso à mesma instalação do COSMOS e permissão para consultar a solicitação. A abertura automática ocorre uma vez por carregamento da página; recarregar tenta abrir novamente. O destino é preservado na URL. Se a cópia automática estiver bloqueada, há um campo selecionado para cópia manual.
+
 ## Copiar protocolo
 
 Na janela da solicitação, **Copiar protocolo** copia somente o identificador, como `COS-00009`, e confirma a cópia na tela. Se o navegador bloquear a área de transferência, o COSMOS apresenta o protocolo selecionado em um campo para cópia manual. A ação está disponível apenas nos pedidos que a pessoa já pode consultar. Não envia mensagens, não copia dados do pedido e não altera registros.
