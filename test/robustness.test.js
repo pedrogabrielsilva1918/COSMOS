@@ -311,3 +311,27 @@ test('nome da própria conta: edição isolada, concorrência e sessões preserv
   assert.equal((await workspace(admin.cookie)).user.name,'Admin atualizado');
   assert.equal((await post(base,'/api/login',{email:before.email,password})).status,200);
 });
+
+test('CSV de pessoas respeita filtros, isolamento e proteção de células',async t=>{
+  const {app,base}=await start();t.after(()=>stop(app));
+  const a=await post(base,'/api/register',{name:'Admin',organization:'Equipe',type:'privada',email:'people-export@example.com',password});
+  const b=await post(base,'/api/register',{name:'Externo',organization:'Outra',type:'privada',email:'people-external@example.com',password});
+  const workspace=async cookie=>(await fetch(base+'/api/workspace',{headers:{cookie}})).json();
+  const first=(await workspace(a.cookie)).sectors[0];
+  const create=async(name,email)=>post(base,'/api/users',{name,email,password,role:'colaborador',sector_id:first.id},{cookie:a.cookie});
+  await create('João de teste','people-joao@example.com');await create('Maria de teste','people-maria@example.com');await create('=Pessoa; "teste"','people-formula@example.com');
+  const users=(await workspace(a.cookie)).users,maria=users.find(u=>u.email==='people-maria@example.com');
+  await post(base,`/api/users/${maria.id}`,{name:maria.name,sector_id:first.id,role:'colaborador',active:false},{cookie:a.cookie});
+  const author=await post(base,'/api/login',{email:'people-joao@example.com',password});
+  const csv=async(query='',cookie=a.cookie)=>{const r=await fetch(base+'/api/users/export.csv?'+query,{headers:{cookie}});return {status:r.status,headers:r.headers,bytes:new Uint8Array(await r.arrayBuffer())};};
+  const decode=r=>new TextDecoder().decode(r.bytes);
+  const all=await csv();assert.equal(all.status,200);assert.deepEqual([...all.bytes.slice(0,3)],[239,187,191]);assert.equal(all.headers.get('cache-control'),'no-store');assert.match(all.headers.get('content-disposition'),/cosmos-pessoas.csv/);
+  assert.match(decode(all),/"Nome";"E-mail";"Setor";"Perfil";"Acesso"/);assert.match(decode(all),/João de teste/);assert.match(decode(all),/Maria de teste/);assert.match(decode(all),/"'=Pessoa; ""teste"""/);assert.doesNotMatch(decode(all),/people-external|password|sessions|salt|org_id/);
+  const found=decode(await csv('q=joao%20'+encodeURIComponent(first.name)+'&role=colaborador&access=active&sector_id='+first.id));assert.match(found,/João de teste/);assert.doesNotMatch(found,/Maria|people-export@example/);
+  const inactive=decode(await csv('access=inactive'));assert.match(inactive,/Maria de teste/);assert.doesNotMatch(inactive,/João|people-export@example/);
+  const empty=decode(await csv('q=naoexiste'));assert.equal(empty.trim().split('\r\n').length,1);
+  assert.equal((await csv('',author.cookie)).status,403);assert.equal((await csv('','')).status,401);
+  const foreign=(await workspace(b.cookie)).sectors[0].id;
+  for(const query of ['role=owner','access=all','sector_id='+foreign,'sector_id=-1','q='+('x'.repeat(201))])assert.equal((await csv(query)).status,400);
+  const other=decode(await csv('',b.cookie));assert.match(other,/people-external/);assert.doesNotMatch(other,/people-joao|people-maria/);
+});

@@ -1,3 +1,4 @@
+import { filterPeople } from './public/people-search.js';
 import { matchesRequestPeriod, periodError } from './public/request-period.js';
 import { matchesRequestSearch } from './public/request-search.js';
 import http from 'node:http';
@@ -302,6 +303,19 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const rows = db.prepare(`SELECT a.id,a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id AND u.org_id=a.org_id WHERE ${conditions} ORDER BY a.id DESC LIMIT 51`).all(...params);
         const history = rows.slice(0, 50);
         return json(200, { history, nextBefore: rows.length > 50 ? history.at(-1).id : null });
+      }
+      if (req.method === 'GET' && path === '/api/users/export.csv') {
+        admin(user);
+        const query=(url.searchParams.get('q')||'').trim(), sectorId=url.searchParams.get('sector_id')||'', role=url.searchParams.get('role')||'', access=url.searchParams.get('access')||'';
+        if (query.length>200) fail(400,'A busca deve ter até 200 caracteres.');
+        if (!['','admin','colaborador'].includes(role)) fail(400,'Filtro de perfil inválido.');
+        if (!['','active','inactive'].includes(access)) fail(400,'Filtro de acesso inválido.');
+        if (sectorId && (!/^[1-9]\d*$/.test(sectorId) || !Number.isSafeInteger(Number(sectorId)) || !db.prepare('SELECT id FROM sectors WHERE id=? AND org_id=?').get(Number(sectorId),user.org_id))) fail(400,'Filtro de setor inválido.');
+        const users=db.prepare('SELECT u.name,u.email,u.role,u.active,u.sector_id,s.name AS sector FROM users u LEFT JOIN sectors s ON s.id=u.sector_id AND s.org_id=u.org_id WHERE u.org_id=? ORDER BY u.name,u.id').all(user.org_id);
+        const rows=filterPeople(users,{query,sectorId,role,access});
+        const csv=[['Nome','E-mail','Setor','Perfil','Acesso'],...rows.map(person=>[person.name,person.email,person.sector||'Não informado',person.role==='admin'?'Administrador':'Colaborador',person.active?'Ativo':'Desativado'])].map(row=>row.map(csvCell).join(';')).join('\r\n')+'\r\n';
+        res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="cosmos-pessoas.csv"','Cache-Control':'no-store'});
+        return res.end('\uFEFF'+csv);
       }
       if (req.method === 'GET' && path === '/api/workspace') {
         const organization = db.prepare('SELECT * FROM organizations WHERE id=?').get(user.org_id);
