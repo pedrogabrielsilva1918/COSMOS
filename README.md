@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Encontrar um setor
+
+Em **Setores**, pesquise pelo nome ou pela descrição da área e combine com **Somente ativos** ou **Somente desativados**. A busca ignora diferenças de maiúsculas e acentos: `juridico` encontra Jurídico. Se houver mais de uma palavra, todas precisam aparecer no nome ou na descrição, em qualquer ordem.
+
+O contador mostra quantos setores correspondem à consulta. **Limpar busca** restaura todos os setores disponíveis. **Atualizar dados** preserva a busca e a situação escolhida; sair da conta limpa os filtros. Os administradores mantêm os botões de cadastro e edição; colaboradores continuam apenas consultando. A busca usa os setores da organização já recebidos no workspace, sem nova permissão ou migração.
+
 ## Pedidos por setor
 
 Na página inicial, **Pedidos por setor** resume total de pedidos, pendentes, vencidos e urgentes. Vencidos e urgentes contam somente os pendentes; aprovados e recusados participam apenas do total. Administradores veem os pedidos da sua organização; colaboradores veem somente os próprios.
