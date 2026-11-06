@@ -362,6 +362,14 @@ $('#requests-view').addEventListener('click',event => {
   renderRequests({keepPage:true});
 });
 $('#created-from').onchange = renderRequests; $('#created-to').onchange = renderRequests;
+$('#request-period-shortcuts').addEventListener('click',event => {
+  const button = event.target.closest('[data-request-period]');
+  if (!button || !state) return;
+  const {from,to} = periodPreset(button.dataset.requestPeriod);
+  $('#created-from').value = from; $('#created-to').value = to;
+  renderRequests();
+});
+
 $('#request-search').oninput = renderRequests; $('#status-filter').onchange = renderRequests;
 $('#deadline-filter').onchange = renderRequests;
 $('#request-order').onchange = renderRequests;
