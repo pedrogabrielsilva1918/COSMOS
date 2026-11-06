@@ -26,6 +26,15 @@ dialog{background:#fff;border:1px solid #dbe6eb;border-radius:20px;padding:30px;
 .request-summary{margin:20px 0}.request-summary h2{font-size:18px;color:#234357;margin:0 0 7px}.request-summary .metrics{margin:14px 0 20px}.request-summary .metric:nth-child(3){background:#fcf0ed;border-color:#eddcd7}.request-summary .metric:nth-child(3) .metric-symbol{background:#f7e0da;color:#a34333}.request-summary .metric:nth-child(4){background:#fff5e6;border-color:#ecdfc8}.request-summary .metric:nth-child(4) .metric-symbol{background:#f8e5c7;color:#92601d}
 
 #requests-view .filters{align-items:flex-end}
-#requests-view .filters>.date-filter{flex:0 0 180px;font-size:11px}
+#requests-view .advanced-filter-fields>.date-filter{flex:0 0 180px;font-size:11px}
 #requests-view .filters .date-filter input{height:43px;min-height:43px;margin-top:4px;padding:9px 12px}
-@media(max-width:760px){#requests-view .filters{align-items:stretch}#requests-view .filters>.date-filter{flex:initial;width:100%}#requests-view .filters .date-filter input{height:44px;min-height:44px}}
+@media(max-width:760px){#requests-view .filters{align-items:stretch}#requests-view .advanced-filter-fields>.date-filter{flex:initial;width:100%}#requests-view .filters .date-filter input{height:44px;min-height:44px}}
+
+#requests-view .request-advanced{flex:0 0 100%;min-width:0;border-top:1px solid #e5edf1;padding-top:11px;margin-top:2px}
+.request-advanced summary{cursor:pointer;color:#356755;font-size:12px;font-weight:650;padding:7px 0;min-height:32px}
+.request-advanced summary:focus-visible{outline:2px solid #276b58;outline-offset:4px;border-radius:4px}
+#request-advanced-count{font-size:11px;color:#5d7587;font-weight:500}
+.advanced-filter-fields{display:flex;flex-wrap:wrap;align-items:flex-end;gap:11px;padding-top:12px}
+.advanced-filter-fields>label{flex:1 1 160px;min-width:0}
+.advanced-filter-fields input,.advanced-filter-fields select{height:43px;min-height:43px}
+@media(max-width:760px){#requests-view .request-advanced{flex:initial;width:100%}.advanced-filter-fields{flex-direction:column;align-items:stretch;gap:9px}.advanced-filter-fields>label{flex:initial;width:100%}.advanced-filter-fields input,.advanced-filter-fields select{height:44px;min-height:44px}.request-advanced summary{min-height:44px;display:list-item;padding:12px 0}}

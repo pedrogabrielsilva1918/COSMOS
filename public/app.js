@@ -28,6 +28,7 @@ async function api(path, body) {
 }
 function notify(message) { clearTimeout(noticeTimer); $('#notice').textContent = message; $('#notice').hidden = false; noticeTimer = setTimeout(() => { $('#notice').hidden = true; }, 6000); }
 function clearRequestFilters() {
+  $('#request-advanced').open = false;
   $('#request-order').value = 'recent';
   for (const id of ['request-search', 'status-filter', 'deadline-filter', 'assignment-filter', 'sector-filter', 'priority-filter', 'created-from', 'created-to']) $(`#${id}`).value = '';
 }
@@ -257,6 +258,9 @@ function renderRequests() {
   const sector = $('#sector-filter').value, priority = $('#priority-filter').value;
   const from = $('#created-from').value, to = $('#created-to').value;
   const error = periodError(from,to); $('#request-period-error').textContent = error;
+  const activeOptions = [$('#deadline-filter').value, sector, priority, assignment, from, to, $('#request-order').value !== 'recent'].filter(Boolean).length;
+  $('#request-advanced-count').textContent = activeOptions ? `· ${activeOptions} ${activeOptions === 1 ? 'ajuste ativo' : 'ajustes ativos'}` : '';
+  if (error) $('#request-advanced').open = true;
   $('#export-requests').disabled = Boolean(error); $('#export-sector-summary').disabled = Boolean(error);
   const filtered = state.requests.filter(r => matchesRequestPeriod(r,from,to) && (!sector || r.sector_id === Number(sector)) && (!priority || r.priority === priority) && (!status || r.status === status) && (!overdueOnly || r.is_overdue) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === state.user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))) && matchesRequestSearch(r, search));
   $('#all-requests').innerHTML = table(orderRequests(filtered, $('#request-order').value));
