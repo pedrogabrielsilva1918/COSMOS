@@ -17,6 +17,7 @@ let state, currentView = 'dashboard', registering = false, noticeTimer, workspac
 let notificationGeneration = 0, notificationNextBefore = null, notificationCount = 0, notificationReadThrough = null;
 let requestPage = 1;
 let pendingLinkedRequest = new URLSearchParams(location.search).get('pedido');
+let historyReady = false, historyExportBusy = false;
 let historyGeneration = 0, historyNextBefore = null, historyLoadedQuery = '', historyCount = 0;
 async function api(path, body) {
   const epoch = workspaceEpoch, sequence = refreshSequence;
@@ -195,19 +196,23 @@ $('#notification-list').addEventListener('click', async event => {
   } catch(error) { if (epoch === workspaceEpoch) notify((marked ? 'Aviso marcado como lido, mas a atualização falhou. ' : '') + error.message); }
   finally { button.disabled = false; }
 });
+function updateHistoryExportState() {
+  $('#history-export').disabled = !historyReady || historyExportBusy || $('#history-submit').disabled || $('#history-search').value.trim() !== historyLoadedQuery;
+}
 function historyBusy(busy) {
-  $('#history-submit').disabled = busy; $('#history-older').disabled = busy;
+  $('#history-submit').disabled = busy; $('#history-older').disabled = busy; updateHistoryExportState();
   if (busy) $('#history-list').setAttribute('aria-busy', 'true'); else $('#history-list').removeAttribute('aria-busy');
 }
 function resetHistory() {
-  historyGeneration++; historyNextBefore = null; historyLoadedQuery = ''; historyCount = 0;
+  historyGeneration++; historyNextBefore = null; historyLoadedQuery = ''; historyCount = 0; historyReady = false; historyExportBusy = false;
+  $('#history-export').textContent = 'Exportar histórico CSV ↓';
   $('#history-search').value = ''; $('#history-list').replaceChildren(); $('#history-results').textContent = ''; $('#history-error').textContent = ''; $('#history-older').hidden = true; historyBusy(false);
 }
 async function loadHistory(before = null) {
   if (!state || state.user.role !== 'admin') { resetHistory(); return; }
   const generation = ++historyGeneration, epoch = workspaceEpoch;
   const query = before === null ? $('#history-search').value.trim() : historyLoadedQuery;
-  historyBusy(true); $('#history-error').textContent = ''; $('#history-results').textContent = 'Consultando histórico…';
+  historyReady = false; historyBusy(true); $('#history-error').textContent = ''; $('#history-results').textContent = 'Consultando histórico…';
   try {
     const params = new URLSearchParams({ q: query }); if (before !== null) params.set('before', before);
     const data = await api(`/history?${params}`);
@@ -216,7 +221,7 @@ async function loadHistory(before = null) {
     if (before === null) $('#history-list').innerHTML = html || '<div class="empty"><strong>Nenhum registro encontrado.</strong>Experimente outra busca ou consulte todas as ações.</div>';
     else $('#history-list').insertAdjacentHTML('beforeend', html);
     historyCount = before === null ? data.history.length : historyCount + data.history.length;
-    historyLoadedQuery = query; historyNextBefore = data.nextBefore; $('#history-older').hidden = historyNextBefore === null;
+    historyReady = true; historyLoadedQuery = query; historyNextBefore = data.nextBefore; $('#history-older').hidden = historyNextBefore === null;
     $('#history-results').textContent = `${historyCount} ${historyCount === 1 ? 'registro exibido' : 'registros exibidos'}${historyNextBefore !== null ? ' · Há registros anteriores.' : ''}`;
   } catch (error) {
     if (generation === historyGeneration && epoch === workspaceEpoch) { $('#history-error').textContent = error.message; $('#history-results').textContent = historyCount ? 'A consulta falhou. Os resultados anteriores foram mantidos.' : 'Não foi possível consultar o histórico.'; }
@@ -225,7 +230,28 @@ async function loadHistory(before = null) {
 $('#history-search-form').onsubmit = event => { event.preventDefault(); loadHistory(); };
 $('#history-clear').onclick = () => { $('#history-search').value = ''; loadHistory(); };
 $('#history-older').onclick = () => { if (historyNextBefore !== null) loadHistory(historyNextBefore); };
-$('#history-search').oninput = () => { historyGeneration++; historyBusy(false); $('#history-older').hidden = true; $('#history-error').textContent = ''; $('#history-results').textContent = 'Clique em Buscar ou pressione Enter para consultar.'; };
+$('#history-search').oninput = () => { historyReady = false; historyGeneration++; historyBusy(false); $('#history-older').hidden = true; $('#history-error').textContent = ''; $('#history-results').textContent = 'Clique em Buscar ou pressione Enter para consultar.'; };
+$('#history-export').onclick = async () => {
+  if (!state || state.user.role !== 'admin' || !historyReady || historyExportBusy || $('#history-search').value.trim() !== historyLoadedQuery) return;
+  const epoch = workspaceEpoch, generation = historyGeneration, button = $('#history-export');
+  historyExportBusy = true; updateHistoryExportState(); button.textContent = 'Preparando…';
+  try {
+    const response = await fetch(`/api/history/export.csv?${new URLSearchParams({q:historyLoadedQuery})}`);
+    if (epoch !== workspaceEpoch || generation !== historyGeneration || !state || state.user.role !== 'admin') return;
+    if (!response.ok) {
+      const data = await response.json();
+      if (epoch !== workspaceEpoch) return;
+      if (response.status === 401) {state=null;$('#modal').close();showAuth();}
+      throw new Error(data.error || 'Não foi possível exportar o histórico.');
+    }
+    const file = await response.blob();
+    if (epoch !== workspaceEpoch || generation !== historyGeneration || !state || state.user.role !== 'admin') return;
+    const url = URL.createObjectURL(file), link = document.createElement('a');
+    link.href = url; link.download = 'cosmos-historico.csv'; document.body.append(link); link.click(); link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),60000); notify('Histórico preparado para download.');
+  } catch(error) {if(epoch === workspaceEpoch && generation === historyGeneration) notify(error.message);}
+  finally {if(epoch === workspaceEpoch){historyExportBusy=false;button.textContent='Exportar histórico CSV ↓';updateHistoryExportState();}}
+};
 function clearPeopleFilters() {
   for (const id of ['people-search', 'people-sector-filter', 'people-role-filter', 'people-access-filter']) $(`#${id}`).value = '';
 }

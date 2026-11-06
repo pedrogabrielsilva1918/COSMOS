@@ -288,19 +288,27 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         });
         return json(200, { ok:true, unreadCount: unreadNotifications(user) });
       }
-      if (req.method === 'GET' && path === '/api/history') {
+      if (req.method === 'GET' && ['/api/history','/api/history/export.csv'].includes(path)) {
         admin(user);
+        const exportHistory = path === '/api/history/export.csv';
         const rawBefore = url.searchParams.get('before');
+        if (exportHistory && rawBefore !== null) fail(400,'A exportação não usa cursor de paginação.');
         if (rawBefore !== null && !/^[1-9]\d*$/.test(rawBefore)) fail(400, 'Cursor de histórico inválido.');
         const before = rawBefore === null ? Number.MAX_SAFE_INTEGER : Number(rawBefore);
         if (!Number.isSafeInteger(before) || before <= 0) fail(400, 'Cursor de histórico inválido.');
         const query = (url.searchParams.get('q') || '').trim();
         if (query.length > 200) fail(400, 'A busca deve ter até 200 caracteres.');
         const terms = query.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase('pt-BR').split(/\s+/).filter(Boolean);
-        const params = [user.org_id, before];
-        let conditions = 'a.org_id=? AND a.id<?';
+        const params = [user.org_id];
+        let conditions = 'a.org_id=?';
+        if (!exportHistory) { conditions += ' AND a.id<?'; params.push(before); }
         for (const term of terms) { conditions += " AND instr(cosmos_search_text(a.action || ' ' || u.name),?)>0"; params.push(term); }
-        const rows = db.prepare(`SELECT a.id,a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id AND u.org_id=a.org_id WHERE ${conditions} ORDER BY a.id DESC LIMIT 51`).all(...params);
+        const rows = db.prepare(`SELECT a.id,a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id AND u.org_id=a.org_id WHERE ${conditions} ORDER BY a.id DESC ${exportHistory ? '' : 'LIMIT 51'}`).all(...params);
+        if (exportHistory) {
+          const csv=[['Registro','Data (UTC)','Responsável','Ação'],...rows.map(row=>[row.id,row.created_at,row.actor,row.action])].map(row=>row.map(csvCell).join(';')).join('\r\n')+'\r\n';
+          res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="cosmos-historico.csv"','Cache-Control':'no-store'});
+          return res.end('\uFEFF'+csv);
+        }
         const history = rows.slice(0, 50);
         return json(200, { history, nextBefore: rows.length > 50 ? history.at(-1).id : null });
       }

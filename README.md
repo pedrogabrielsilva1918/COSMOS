@@ -2,6 +2,14 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Exportar histórico
+
+Administradores podem usar **Histórico → Exportar histórico CSV** após concluir uma consulta. O arquivo inclui todos os registros correspondentes à busca, não apenas as páginas carregadas, com número do registro, data em UTC, responsável e ação. Os registros aparecem do mais recente para o mais antigo; a busca mantém as regras de acentos e palavras da tela.
+
+Ao editar a busca, clique em **Buscar** antes de exportar. O botão fica desabilitado enquanto não houver consulta concluída ou durante o download. A exportação consulta os dados atuais no momento do download, podendo incluir movimentações posteriores à consulta da tela. Sem resultados, há somente cabeçalho.
+
+`GET /api/history/export.csv?q=texto` exige administrador e usa a mesma seleção por organização e busca da API do histórico. Não aceita cursor `before`. O CSV usa UTF-8 com BOM, ponto e vírgula e proteção contra fórmulas; a resposta não é armazenada em cache. Não altera dados nem permissões.
+
 ## Exportar pessoas
 
 Em **Pessoas → Exportar pessoas CSV**, administradores podem baixar nome, e-mail, setor, perfil e situação de acesso da equipe. A busca e os filtros de setor, perfil e acesso são aplicados também ao arquivo, usando a mesma função de filtro da tela. Sem resultados, o CSV contém apenas o cabeçalho. Inclui contas desativadas quando não houver filtro de acesso.

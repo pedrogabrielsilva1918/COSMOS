@@ -335,3 +335,25 @@ test('CSV de pessoas respeita filtros, isolamento e proteção de células',asyn
   for(const query of ['role=owner','access=all','sector_id='+foreign,'sector_id=-1','q='+('x'.repeat(201))])assert.equal((await csv(query)).status,400);
   const other=decode(await csv('',b.cookie));assert.match(other,/people-external/);assert.doesNotMatch(other,/people-joao|people-maria/);
 });
+
+test('histórico CSV exporta a busca completa, protege células e isola organizações',async t=>{
+  const {app,base}=await start();t.after(()=>stop(app));
+  const a=await post(base,'/api/register',{name:'=Ana',organization:'Histórico CSV',type:'privada',email:'history-csv@example.com',password});
+  const b=await post(base,'/api/register',{name:'Outro',organization:'Outra',type:'privada',email:'history-other@example.com',password});
+  const workspace=async cookie=>(await fetch(base+'/api/workspace',{headers:{cookie}})).json();
+  const sector=(await workspace(a.cookie)).sectors[0].id;
+  await post(base,'/api/users',{name:'Colaborador',email:'history-user@example.com',password,role:'colaborador',sector_id:sector},{cookie:a.cookie});
+  const author=await post(base,'/api/login',{email:'history-user@example.com',password});
+  for(let i=0;i<55;i++)assert.equal((await post(base,'/api/sectors',{name:'Lote histórico '+i},{cookie:a.cookie})).status,201);
+  const query='HISTORICO ana';
+  const page=await (await fetch(base+'/api/history?q='+encodeURIComponent(query),{headers:{cookie:a.cookie}})).json();assert.equal(page.history.length,50);assert.ok(page.nextBefore);
+  const csv=async(q=query,cookie=a.cookie,extra='')=>{const r=await fetch(base+'/api/history/export.csv?q='+encodeURIComponent(q)+extra,{headers:{cookie}});return {status:r.status,headers:r.headers,bytes:new Uint8Array(await r.arrayBuffer())};};
+  const decode=r=>new TextDecoder().decode(r.bytes);
+  const result=await csv();assert.equal(result.status,200);assert.deepEqual([...result.bytes.slice(0,3)],[239,187,191]);assert.equal(result.headers.get('cache-control'),'no-store');assert.match(result.headers.get('content-disposition'),/cosmos-historico.csv/);
+  const text=decode(result),ids=[...text.matchAll(/^"(\d+)";/gm)].map(m=>Number(m[1]));assert.equal(ids.length,55);assert.equal(new Set(ids).size,55);assert.deepEqual(ids.slice(0,50),page.history.map(h=>h.id));assert.match(text,/"'=Ana"/);assert.match(text,/Lote histórico 54/);
+  assert.equal(decode(await csv('naoexiste')).trim().split('\r\n').length,1);
+  assert.equal(decode(await csv(query,b.cookie)).trim().split('\r\n').length,1);
+  assert.equal((await csv(query,author.cookie)).status,403);assert.equal((await csv(query,'')).status,401);
+  assert.equal((await csv('x'.repeat(201))).status,400);assert.equal((await csv(query,a.cookie,'&before=10')).status,400);
+  assert.equal(decode(await csv("' OR 1=1 --")).trim().split('\r\n').length,1);
+});
