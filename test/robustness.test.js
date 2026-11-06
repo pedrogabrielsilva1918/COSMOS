@@ -190,5 +190,12 @@ test('CSV usa busca ampliada e mantém isolamento de pedidos',async t=>{
   assert.doesNotMatch(await csv('recepcao joao',bia.cookie),/COS-00001/);
   assert.match(await csv('bia recepcao',bia.cookie),/COS-00002/);
   assert.match(await csv(sector.name+' recepcao',admin.cookie),/COS-00001/);
+  const periodCSV=async(query,cookie=admin.cookie)=>{const r=await fetch(base+'/api/requests/export.csv?'+query,{headers:{cookie}});return {status:r.status,text:await r.text()};};
+  const inPeriod=await periodCSV('from=2000-01-01&to=2099-12-31&q=recepcao%20joao');assert.equal(inPeriod.status,200);assert.match(inPeriod.text,/COS-00001/);assert.doesNotMatch(inPeriod.text,/COS-00002/);
+  assert.doesNotMatch((await periodCSV('from=2099-01-01')).text,/COS-0000/);
+  assert.doesNotMatch((await periodCSV('to=2000-01-01')).text,/COS-0000/);
+  assert.doesNotMatch((await periodCSV('from=2000-01-01&to=2099-12-31',bia.cookie)).text,/COS-00001/);
+  for(const query of ['from=2026-02-29','to=2026-04-31','from=2026-11-07&to=2026-11-06','from=abc'])assert.equal((await periodCSV(query)).status,400);
+  const periodModule=await fetch(base+'/request-period.js');assert.equal(periodModule.status,200);assert.match(periodModule.headers.get('content-type'),/javascript/);
   const module=await fetch(base+'/request-search.js');assert.equal(module.status,200);assert.match(module.headers.get('content-type'),/javascript/);
 });
