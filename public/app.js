@@ -1,3 +1,4 @@
+import { matchesRequestSearch } from './request-search.js';
 import { orderRequests } from './request-order.js';
 import { summarizeSectors } from './sector-overview.js';
 import { filterSectors } from './sector-search.js';
@@ -253,7 +254,7 @@ function renderRequests() {
   const overdueOnly = $('#deadline-filter').value === 'overdue';
   const assignment = state.user.role === 'admin' ? $('#assignment-filter').value : '';
   const sector = $('#sector-filter').value, priority = $('#priority-filter').value;
-  const filtered = state.requests.filter(r => (!sector || r.sector_id === Number(sector)) && (!priority || r.priority === priority) && (!status || r.status === status) && (!overdueOnly || r.is_overdue) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === state.user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))) && `${r.title} COS-${String(r.id).padStart(5, '0')}`.toLocaleLowerCase('pt-BR').includes(search));
+  const filtered = state.requests.filter(r => (!sector || r.sector_id === Number(sector)) && (!priority || r.priority === priority) && (!status || r.status === status) && (!overdueOnly || r.is_overdue) && (!assignment || (r.status === 'pendente' && (assignment === 'mine' ? r.assigned_to === state.user.id && r.assignee_available === 1 : !r.assigned_to || r.assignee_available !== 1))) && matchesRequestSearch(r, search));
   $('#all-requests').innerHTML = table(orderRequests(filtered, $('#request-order').value));
   $('#request-results').textContent = `${filtered.length} de ${state.requests.length} ${state.requests.length === 1 ? 'solicitação' : 'solicitações'}`;
 }

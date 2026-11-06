@@ -177,3 +177,18 @@ test('solicitante edita apenas pedido próprio pendente e detecta versão desatu
   const own=await post(base,'/api/requests',{...original,priority:'normal',sector_id:sector},{cookie:admin.cookie});
   assert.equal((await post(base,`/api/requests/${own.data.id}/edit`,body,{cookie:admin.cookie})).status,200);
 });
+
+test('CSV usa busca ampliada e mantém isolamento de pedidos',async t=>{
+  const {app,base}=await start();t.after(()=>stop(app));
+  const admin=await post(base,'/api/register',{name:'João',organization:'Busca',type:'privada',email:'search@example.com',password});
+  const workspace=await (await fetch(base+'/api/workspace',{headers:{cookie:admin.cookie}})).json();const sector=workspace.sectors[0];
+  await post(base,'/api/users',{name:'Bia',email:'search-bia@example.com',password,role:'colaborador',sector_id:sector.id},{cookie:admin.cookie});
+  const bia=await post(base,'/api/login',{email:'search-bia@example.com',password});
+  for(const cookie of [admin.cookie,bia.cookie])await post(base,'/api/requests',{title:'Compra de teste',description:'Reposição para a recepção',priority:'normal',sector_id:sector.id},{cookie});
+  const csv=async(query,cookie)=>{const r=await fetch(base+'/api/requests/export.csv?q='+encodeURIComponent(query),{headers:{cookie}});assert.equal(r.status,200);return r.text();};
+  const found=await csv('recepcao joao',admin.cookie);assert.match(found,/COS-00001/);assert.doesNotMatch(found,/COS-00002/);
+  assert.doesNotMatch(await csv('recepcao joao',bia.cookie),/COS-00001/);
+  assert.match(await csv('bia recepcao',bia.cookie),/COS-00002/);
+  assert.match(await csv(sector.name+' recepcao',admin.cookie),/COS-00001/);
+  const module=await fetch(base+'/request-search.js');assert.equal(module.status,200);assert.match(module.headers.get('content-type'),/javascript/);
+});

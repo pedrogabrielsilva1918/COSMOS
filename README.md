@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Busca ampliada de solicitações
+
+Em **Solicitações**, pesquise por título, protocolo, nome do solicitante, setor ou descrição/justificativa. A busca ignora acentos e maiúsculas; todas as palavras precisam aparecer nos campos pesquisados, em qualquer ordem. Por exemplo, `material joao` encontra um pedido de João cuja justificativa mencione material. O protocolo mantém o formato `COS-00012`.
+
+A mesma regra é compartilhada pela lista e pela exportação CSV, combinando com os demais filtros e a ordenação. Somente pedidos autorizados ao perfil entram na pesquisa. O setor e o nome da pessoa correspondem ao cadastro atual. Não há nova permissão nem alteração no banco.
+
 ## Usar um pedido como modelo
 
 Abra um pedido próprio e clique em **Usar como modelo**. O COSMOS preenche título, justificativa, prioridade e setor ativo em um novo formulário. Revise os dados e clique em **Salvar** para enviar uma nova solicitação pendente, com novo protocolo. Cancelar ou fechar o formulário não cria registros. Pedidos pendentes, aprovados e recusados podem ser usados como modelo.
