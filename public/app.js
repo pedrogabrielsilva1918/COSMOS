@@ -1,4 +1,4 @@
-import { matchesRequestPeriod, periodError } from './request-period.js';
+import { matchesRequestPeriod, periodError, periodPreset } from './request-period.js';
 import { matchesRequestSearch } from './request-search.js';
 import { orderRequests } from './request-order.js';
 import { summarizeSectors } from './sector-overview.js';
@@ -239,6 +239,14 @@ $('#history-clear').onclick = () => { $('#history-search').value = ''; $('#histo
 $('#history-older').onclick = () => { if (historyNextBefore !== null) loadHistory(historyNextBefore); };
 function historyDraftChanged() { historyReady = false; historyGeneration++; historyBusy(false); $('#history-older').hidden = true; $('#history-error').textContent = periodError($('#history-from').value,$('#history-to').value); $('#history-results').textContent = 'Clique em Buscar ou pressione Enter para consultar.'; }
 $('#history-search').oninput = historyDraftChanged; $('#history-from').onchange = historyDraftChanged; $('#history-to').onchange = historyDraftChanged;
+$('#history-period-shortcuts').addEventListener('click',event => {
+  const button = event.target.closest('[data-history-period]');
+  if (!button || !state || state.user.role !== 'admin') return;
+  const {from,to} = periodPreset(button.dataset.historyPeriod);
+  $('#history-from').value = from; $('#history-to').value = to;
+  historyDraftChanged(); loadHistory();
+});
+
 $('#history-export').onclick = async () => {
   if (!state || state.user.role !== 'admin' || !historyReady || historyExportBusy || !historyDraftMatches()) return;
   const epoch = workspaceEpoch, generation = historyGeneration, button = $('#history-export');
