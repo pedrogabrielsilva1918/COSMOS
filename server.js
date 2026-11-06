@@ -149,7 +149,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
       const path = url.pathname;
       if (!path.startsWith('/api/')) {
         if (req.method !== 'GET') fail(405, 'Método não permitido.');
-        const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'], '/horizonte.css': ['horizonte.css', 'text/css'], '/print.css': ['print.css', 'text/css'], '/print.js': ['print.js', 'text/javascript'], '/request-order.js': ['request-order.js', 'text/javascript'], '/sector-overview.js': ['sector-overview.js', 'text/javascript'], '/sector-search.js': ['sector-search.js', 'text/javascript'] };
+        const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'], '/horizonte.css': ['horizonte.css', 'text/css'], '/print.css': ['print.css', 'text/css'], '/print.js': ['print.js', 'text/javascript'], '/request-order.js': ['request-order.js', 'text/javascript'], '/sector-overview.js': ['sector-overview.js', 'text/javascript'], '/sector-search.js': ['sector-search.js', 'text/javascript'], '/people-search.js': ['people-search.js', 'text/javascript'] };
         if (!assets[path]) fail(404, 'Página não encontrada.');
         const [file, mime] = assets[path];
         res.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8` }); return res.end(readFileSync(join(root, 'public', file)));

@@ -2,6 +2,14 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Encontrar pessoas da equipe
+
+Administradores podem pesquisar em **Pessoas** por nome, e-mail ou nome do setor, sem diferenciar maiúsculas ou acentos. Várias palavras precisam aparecer nos campos pesquisados, em qualquer ordem. Combine a busca com setor, perfil (administrador ou colaborador) e acesso (ativo ou desativado). O setor é o cadastro atual da pessoa, e setores desativados também podem ser consultados.
+
+O contador mostra quantas pessoas correspondem aos filtros. **Limpar busca** restaura a lista da organização. **Atualizar dados** preserva a consulta e os filtros válidos; sair da conta limpa tudo. O botão de edição continua ligado à pessoa selecionada, mesmo com a lista filtrada. No celular, os registros aparecem em cartões com nome, e-mail, setor, perfil, acesso e edição.
+
+A pesquisa usa somente as pessoas já autorizadas no workspace do administrador. Colaboradores não recebem a lista nem ganham acesso à página. Não há exportação adicional, nova permissão ou migração do banco.
+
 ## Encontrar um setor
 
 Em **Setores**, pesquise pelo nome ou pela descrição da área e combine com **Somente ativos** ou **Somente desativados**. A busca ignora diferenças de maiúsculas e acentos: `juridico` encontra Jurídico. Se houver mais de uma palavra, todas precisam aparecer no nome ou na descrição, em qualquer ordem.

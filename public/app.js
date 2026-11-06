@@ -1,6 +1,7 @@
 import { orderRequests } from './request-order.js';
 import { summarizeSectors } from './sector-overview.js';
 import { filterSectors } from './sector-search.js';
+import { filterPeople } from './people-search.js';
 'use strict';
 const $ = selector => document.querySelector(selector);
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -26,7 +27,7 @@ function clearRequestFilters() {
   $('#request-order').value = 'recent';
   for (const id of ['request-search', 'status-filter', 'deadline-filter', 'assignment-filter', 'sector-filter', 'priority-filter']) $(`#${id}`).value = '';
 }
-function showAuth() { workspaceEpoch++; refreshSequence++; $('#refresh-workspace').disabled = false; $('#refresh-workspace').textContent = 'Atualizar dados ↻'; $('#refresh-workspace').removeAttribute('aria-busy'); $('#workspace-updated').textContent = ''; currentView = 'dashboard'; clearRequestFilters(); clearSectorFilters(); $('#workspace').hidden = true; $('#auth').hidden = false; }
+function showAuth() { workspaceEpoch++; refreshSequence++; $('#refresh-workspace').disabled = false; $('#refresh-workspace').textContent = 'Atualizar dados ↻'; $('#refresh-workspace').removeAttribute('aria-busy'); $('#workspace-updated').textContent = ''; currentView = 'dashboard'; clearRequestFilters(); clearSectorFilters(); clearPeopleFilters(); $('#workspace').hidden = true; $('#auth').hidden = false; }
 function authMode(value) {
   registering = value;
   $('#registration-fields').hidden = !value;
@@ -104,6 +105,18 @@ function table(requests) {
   if (!requests.length) return '<div class="empty"><strong>Nenhuma solicitação por aqui.</strong>Crie uma solicitação ou ajuste os filtros para começar.</div>';
   return `<table class="data-table request-table"><thead><tr><th>SOLICITAÇÃO</th><th>SETOR</th><th>SITUAÇÃO</th><th>PRIORIDADE</th><th>PRAZO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${requests.map(r => `<tr><td data-label="Solicitação"><span class="request-title">${escapeHTML(r.title)}</span><span class="request-id">COS-${String(r.id).padStart(5, '0')} · ${escapeHTML(r.author)}</span><span class="request-assignee-line">Responsável: ${assigneeBadge(r)}</span></td><td data-label="Setor">${escapeHTML(r.sector)}</td><td data-label="Situação">${pill(r.status)}</td><td data-label="Prioridade"><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase() + r.priority.slice(1))}</span></td><td data-label="Prazo">${deadlineBadge(r)}</td><td data-label="Ações"><button class="row-open" data-request="${r.id}" aria-label="Abrir solicitação ${r.id}">Abrir ↗</button></td></tr>`).join('')}</tbody></table>`;
 }
+function clearPeopleFilters() {
+  for (const id of ['people-search', 'people-sector-filter', 'people-role-filter', 'people-access-filter']) $(`#${id}`).value = '';
+}
+function renderPeople() {
+  if (state.user.role !== 'admin') { $('#people-table').replaceChildren(); $('#people-results').textContent = ''; clearPeopleFilters(); return; }
+  const people = filterPeople(state.users, { query: $('#people-search').value, sectorId: $('#people-sector-filter').value, role: $('#people-role-filter').value, access: $('#people-access-filter').value });
+  $('#people-table').innerHTML = people.length ? `<table class="data-table people-table"><thead><tr><th scope="col">NOME</th><th scope="col">E-MAIL</th><th scope="col">SETOR</th><th scope="col">PERFIL</th><th scope="col">ACESSO</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead><tbody>${people.map(u => `<tr><td data-label="Nome"><strong>${escapeHTML(u.name)}</strong></td><td data-label="E-mail">${escapeHTML(u.email)}</td><td data-label="Setor">${escapeHTML(u.sector || 'Não informado')}</td><td data-label="Perfil">${u.role === 'admin' ? 'Administrador' : 'Colaborador'}</td><td data-label="Acesso"><span class="person-access ${u.active ? 'person-active' : 'person-inactive'}">${u.active ? 'Ativo' : 'Desativado'}</span></td><td data-label="Ações"><button type="button" class="row-open" data-person="${u.id}" aria-label="Editar ${escapeHTML(u.name)}">Editar ↗</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty"><strong>Nenhuma pessoa encontrada.</strong>Experimente outros filtros ou limpe a busca.</div>';
+  $('#people-results').textContent = `${people.length} de ${state.users.length} ${state.users.length === 1 ? 'pessoa' : 'pessoas'}`;
+}
+$('#people-search').oninput = renderPeople;
+for (const id of ['people-sector-filter', 'people-role-filter', 'people-access-filter']) $(`#${id}`).onchange = renderPeople;
+$('#clear-people-filters').onclick = () => { clearPeopleFilters(); renderPeople(); $('#people-search').focus(); };
 function clearSectorFilters() { $('#sector-search').value = ''; $('#sector-status-filter').value = ''; }
 function renderSectors() {
   const admin = state.user.role === 'admin';
@@ -191,7 +204,10 @@ async function refresh() {
     $('#sector-filter').value = state.sectors.some(s => String(s.id) === selectedSector) ? selectedSector : '';
     $('#recent-requests').innerHTML = table(state.requests.slice(0, 5)); renderRequests(); renderSectorOverview();
     renderSectors();
-    $('#people-table').innerHTML = `<table class="data-table"><thead><tr><th>NOME</th><th>E-MAIL</th><th>SETOR</th><th>PERFIL</th><th>ACESSO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${state.users.map(u => `<tr><td>${escapeHTML(u.name)}</td><td>${escapeHTML(u.email)}</td><td>${escapeHTML(u.sector)}</td><td>${u.role === 'admin' ? 'Administrador' : 'Colaborador'}</td><td>${u.active ? 'Ativo' : 'Desativado'}</td><td><button class="row-open" data-person="${u.id}" aria-label="Editar ${escapeHTML(u.name)}">Editar ↗</button></td></tr>`).join('')}</tbody></table>`;
+    const selectedPeopleSector = $('#people-sector-filter').value;
+    $('#people-sector-filter').innerHTML = '<option value="">Todos os setores</option>' + state.sectors.map(s => `<option value="${s.id}">${escapeHTML(s.name)}${s.active ? '' : ' (desativado)'}</option>`).join('');
+    $('#people-sector-filter').value = state.sectors.some(s => String(s.id) === selectedPeopleSector) ? selectedPeopleSector : '';
+    renderPeople();
     $('#history-list').innerHTML = state.history.map(h => `<article class="history-item"><span class="history-dot">${icon('clock')}</span><div>${escapeHTML(h.action)}<small>${escapeHTML(h.actor)} · ${date(h.created_at)}</small></div></article>`).join('') || '<div class="empty">Nenhuma movimentação registrada.</div>';
     setView(currentView);
     $('#workspace-updated').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
