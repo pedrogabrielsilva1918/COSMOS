@@ -351,6 +351,23 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         });
         return res.end('\uFEFF' + csv);
       }
+      if (req.method === 'POST' && path === '/api/organization') {
+        admin(user);
+        const body = await readBody(req), name = field(body,'name',160);
+        if (!['publica','privada'].includes(body.type)) fail(400,'Selecione a natureza pública ou privada.');
+        transaction(() => {
+          admin(user);
+          const organization = db.prepare('SELECT name,type FROM organizations WHERE id=?').get(user.org_id);
+          const changes = [];
+          if (organization.name !== name) changes.push(`nome: ${organization.name} → ${name}`);
+          if (organization.type !== body.type) changes.push(`natureza: ${organization.type === 'publica' ? 'pública' : 'privada'} → ${body.type === 'publica' ? 'pública' : 'privada'}`);
+          if (changes.length) {
+            db.prepare('UPDATE organizations SET name=?,type=? WHERE id=?').run(name,body.type,user.org_id);
+            audit(user,`Organização atualizada: ${changes.join('; ')}`);
+          }
+        });
+        return json(200,{ok:true});
+      }
       if (req.method === 'POST' && path === '/api/sectors/suggested') {
         admin(user); await readBody(req);
         const names = ['Jurídico', 'Compras e Licitações', 'Patrimônio e Almoxarifado'];

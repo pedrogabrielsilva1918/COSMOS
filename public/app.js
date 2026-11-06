@@ -438,6 +438,11 @@ function editRequestForm(request) {
   if (request.user_id !== state.user.id || request.status !== 'pendente') return;
   formModal('Editar meu pedido', `<p class="hint">Corrija o título e a justificativa. A edição será registrada nas movimentações. Setor, prioridade, prazo e responsável permanecem como estão.</p><label>Título<input name="title" required maxlength="160" value="${escapeHTML(request.title)}"></label><label>Descrição e justificativa<textarea name="description" required maxlength="5000">${escapeHTML(request.description)}</textarea></label>`, `/requests/${request.id}/edit`, data => ({ ...data, expected: { title: request.title, description: request.description } }), 'Pedido atualizado.', request.id);
 }
+$('#organization-settings').onclick = () => {
+  if (!state || state.user.role !== 'admin') return;
+  const organization = state.organization;
+  formModal('Editar organização', `<label>Nome da organização<input name="name" required maxlength="160" autocomplete="organization" value="${escapeHTML(organization.name)}"></label><label>Natureza<select name="type"><option value="privada" ${organization.type === 'privada' ? 'selected' : ''}>Empresa privada</option><option value="publica" ${organization.type === 'publica' ? 'selected' : ''}>Órgão ou entidade pública</option></select></label><p class="hint">O nome atualizado aparecerá no sistema e nas novas impressões dos pedidos. Solicitações, pessoas e setores serão preservados. As mudanças ficam registradas no histórico.</p>`, '/organization', data => ({name:data.name,type:data.type}), 'Organização atualizada.');
+};
 function sectorForm() { formModal('Novo setor', '<label>Nome do setor<input name="name" required maxlength="120" placeholder="Ex.: Recursos Humanos"></label><label>O que este setor faz<textarea name="description" maxlength="300" placeholder="Explique em uma ou duas frases como esta área ajuda a organização."></textarea></label>', '/sectors'); }
 function editSectorForm(id) {
   const sector = state.sectors.find(s => s.id === id);
