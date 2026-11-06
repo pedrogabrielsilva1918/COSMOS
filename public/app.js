@@ -209,7 +209,7 @@ function historyBusy(busy) {
 function resetHistory() {
   historyGeneration++; historyNextBefore = null; historyLoadedQuery = ''; historyCount = 0; historyReady = false; historyExportBusy = false;
   historyLoadedFrom = ''; historyLoadedTo = ''; $('#history-from').value = ''; $('#history-to').value = '';
-  $('#history-export').textContent = 'Exportar histórico CSV ↓';
+  $('#history-export').textContent = 'Exportar histórico Excel ↓';
   $('#history-search').value = ''; $('#history-list').replaceChildren(); $('#history-results').textContent = ''; $('#history-error').textContent = ''; $('#history-older').hidden = true; historyBusy(false);
 }
 async function loadHistory(before = null) {
@@ -252,7 +252,7 @@ $('#history-export').onclick = async () => {
   const epoch = workspaceEpoch, generation = historyGeneration, button = $('#history-export');
   historyExportBusy = true; updateHistoryExportState(); button.textContent = 'Preparando…';
   try {
-    const response = await fetch(`/api/history/export.csv?${new URLSearchParams({q:historyLoadedQuery,from:historyLoadedFrom,to:historyLoadedTo})}`);
+    const response = await fetch(`/api/history/export.xlsx?${new URLSearchParams({q:historyLoadedQuery,from:historyLoadedFrom,to:historyLoadedTo})}`);
     if (epoch !== workspaceEpoch || generation !== historyGeneration || !state || state.user.role !== 'admin') return;
     if (!response.ok) {
       const data = await response.json();
@@ -263,10 +263,10 @@ $('#history-export').onclick = async () => {
     const file = await response.blob();
     if (epoch !== workspaceEpoch || generation !== historyGeneration || !state || state.user.role !== 'admin') return;
     const url = URL.createObjectURL(file), link = document.createElement('a');
-    link.href = url; link.download = 'cosmos-historico.csv'; document.body.append(link); link.click(); link.remove();
+    link.href = url; link.download = 'cosmos-historico.xlsx'; document.body.append(link); link.click(); link.remove();
     setTimeout(()=>URL.revokeObjectURL(url),60000); notify('Histórico preparado para download.');
   } catch(error) {if(epoch === workspaceEpoch && generation === historyGeneration) notify(error.message);}
-  finally {if(epoch === workspaceEpoch){historyExportBusy=false;button.textContent='Exportar histórico CSV ↓';updateHistoryExportState();}}
+  finally {if(epoch === workspaceEpoch){historyExportBusy=false;button.textContent='Exportar histórico Excel ↓';updateHistoryExportState();}}
 };
 function clearPeopleFilters() {
   for (const id of ['people-search', 'people-sector-filter', 'people-role-filter', 'people-access-filter']) $(`#${id}`).value = '';
@@ -286,7 +286,7 @@ $('#export-people').onclick = async () => {
   const params=new URLSearchParams({q:$('#people-search').value.trim(),sector_id:$('#people-sector-filter').value,role:$('#people-role-filter').value,access:$('#people-access-filter').value});
   button.disabled=true; button.textContent='Preparando…';
   try {
-    const response=await fetch(`/api/users/export.csv?${params}`);
+    const response=await fetch(`/api/users/export.xlsx?${params}`);
     if (epoch!==workspaceEpoch || !state || state.user.role!=='admin') return;
     if (!response.ok) {
       const data=await response.json();
@@ -297,10 +297,10 @@ $('#export-people').onclick = async () => {
     const file=await response.blob();
     if (epoch!==workspaceEpoch || !state || state.user.role!=='admin') return;
     const url=URL.createObjectURL(file), link=document.createElement('a');
-    link.href=url;link.download='cosmos-pessoas.csv';document.body.append(link);link.click();link.remove();
+    link.href=url;link.download='cosmos-pessoas.xlsx';document.body.append(link);link.click();link.remove();
     setTimeout(()=>URL.revokeObjectURL(url),60000);notify('Lista de pessoas preparada para download.');
   } catch(error) {if(epoch===workspaceEpoch)notify(error.message);}
-  finally {button.disabled=false;button.textContent='Exportar pessoas CSV ↓';}
+  finally {button.disabled=false;button.textContent='Exportar pessoas Excel ↓';}
 };
 function clearSectorFilters() { $('#sector-search').value = ''; $('#sector-status-filter').value = ''; }
 function renderSectors() {
@@ -383,7 +383,7 @@ async function exportRequests(summary = false) {
   const button = $(summary ? '#export-sector-summary' : '#export-requests'), label = button.textContent; button.disabled = true; button.textContent = 'Preparando…';
   const params = new URLSearchParams({ q: $('#request-search').value.trim(), from: $('#created-from').value, to: $('#created-to').value, status: $('#status-filter').value, deadline: $('#deadline-filter').value, assignment: $('#assignment-filter').value, sector_id: $('#sector-filter').value, priority: $('#priority-filter').value, order: $('#request-order').value });
   try {
-    const response = await fetch(`/api/requests/${summary ? 'summary' : 'export'}.csv?${params}`);
+    const response = await fetch(`/api/requests/${summary ? 'summary' : 'export'}.xlsx?${params}`);
     if (!response.ok) {
       const data = await response.json();
       if (response.status === 401) { state = null; $('#modal').close(); showAuth(); }
@@ -391,7 +391,7 @@ async function exportRequests(summary = false) {
     }
     const file = await response.blob();
     const url = URL.createObjectURL(file); const link = document.createElement('a');
-    link.href = url; link.download = summary ? 'cosmos-resumo-setores.csv' : 'cosmos-solicitacoes.csv'; document.body.append(link); link.click(); link.remove();
+    link.href = url; link.download = summary ? 'cosmos-resumo-setores.xlsx' : 'cosmos-solicitacoes.xlsx'; document.body.append(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     notify('Arquivo preparado para download.');
   } catch (error) { notify(error.message); }

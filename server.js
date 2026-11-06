@@ -1,3 +1,4 @@
+import { spreadsheetExport } from './spreadsheet-export.js';
 import { filterPeople } from './public/people-search.js';
 import { matchesRequestPeriod, periodError } from './public/request-period.js';
 import { matchesRequestSearch } from './public/request-search.js';
@@ -165,7 +166,13 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
     const json = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
     try {
       const url = new URL(req.url, 'http://localhost');
-      const path = url.pathname;
+      const spreadsheet = /^\/api\/(?:requests\/(?:export|summary)|users\/export|history\/export)\.xlsx$/.test(url.pathname);
+      const path = spreadsheet ? url.pathname.replace(/\.xlsx$/,'.csv') : url.pathname;
+      const sendSpreadsheet = (name,header,rows,title) => {
+        const file=spreadsheetExport(header,rows,title);
+        res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':`attachment; filename="${name}.xlsx"`,'Cache-Control':'no-store'});
+        return res.end(file);
+      };
       if (!path.startsWith('/api/')) {
         if (req.method !== 'GET') fail(405, 'Método não permitido.');
         const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'], '/horizonte.css': ['horizonte.css', 'text/css'], '/print.css': ['print.css', 'text/css'], '/print.js': ['print.js', 'text/javascript'], '/request-order.js': ['request-order.js', 'text/javascript'], '/request-search.js': ['request-search.js', 'text/javascript'], '/request-period.js': ['request-period.js', 'text/javascript'], '/sector-overview.js': ['sector-overview.js', 'text/javascript'], '/sector-search.js': ['sector-search.js', 'text/javascript'], '/people-search.js': ['people-search.js', 'text/javascript'] };
@@ -313,6 +320,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         for (const term of terms) { conditions += " AND instr(cosmos_search_text(a.action || ' ' || u.name),?)>0"; params.push(term); }
         const rows = db.prepare(`SELECT a.id,a.action,a.created_at,u.name AS actor FROM audit a JOIN users u ON u.id=a.actor_id AND u.org_id=a.org_id WHERE ${conditions} ORDER BY a.id DESC ${exportHistory ? '' : 'LIMIT 51'}`).all(...params);
         if (exportHistory) {
+          if(spreadsheet) return sendSpreadsheet('cosmos-historico',['Registro','Data (UTC)','Responsável','Ação'],rows.map(row=>[row.id,row.created_at,row.actor,row.action]),'Histórico');
           const csv=[['Registro','Data (UTC)','Responsável','Ação'],...rows.map(row=>[row.id,row.created_at,row.actor,row.action])].map(row=>row.map(csvCell).join(';')).join('\r\n')+'\r\n';
           res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="cosmos-historico.csv"','Cache-Control':'no-store'});
           return res.end('\uFEFF'+csv);
@@ -329,6 +337,7 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         if (sectorId && (!/^[1-9]\d*$/.test(sectorId) || !Number.isSafeInteger(Number(sectorId)) || !db.prepare('SELECT id FROM sectors WHERE id=? AND org_id=?').get(Number(sectorId),user.org_id))) fail(400,'Filtro de setor inválido.');
         const users=db.prepare('SELECT u.name,u.email,u.role,u.active,u.sector_id,s.name AS sector FROM users u LEFT JOIN sectors s ON s.id=u.sector_id AND s.org_id=u.org_id WHERE u.org_id=? ORDER BY u.name,u.id').all(user.org_id);
         const rows=filterPeople(users,{query,sectorId,role,access});
+        if(spreadsheet) return sendSpreadsheet('cosmos-pessoas',['Nome','E-mail','Setor','Perfil','Acesso'],rows.map(person=>[person.name,person.email,person.sector||'Não informado',person.role==='admin'?'Administrador':'Colaborador',person.active?'Ativo':'Desativado']),'Pessoas');
         const csv=[['Nome','E-mail','Setor','Perfil','Acesso'],...rows.map(person=>[person.name,person.email,person.sector||'Não informado',person.role==='admin'?'Administrador':'Colaborador',person.active?'Ativo':'Desativado'])].map(row=>row.map(csvCell).join(';')).join('\r\n')+'\r\n';
         res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="cosmos-pessoas.csv"','Cache-Control':'no-store'});
         return res.end('\uFEFF'+csv);
@@ -380,14 +389,16 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
             if (request.status === 'recusada') group.refused++;
           }
           const summary = [...groups.values()].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR') || a.id-b.id);
+          if(spreadsheet) return sendSpreadsheet('cosmos-resumo-setores',['Setor','Total','Pendentes','Aprovadas','Recusadas','Pendentes vencidas','Pendentes urgentes'],summary.map(g=>[g.name,g.total,g.pending,g.approved,g.refused,g.overdue,g.urgent]),'Resumo por setor');
           const csv = [['Setor','Total','Pendentes','Aprovadas','Recusadas','Pendentes vencidas','Pendentes urgentes'],...summary.map(g=>[g.name,g.total,g.pending,g.approved,g.refused,g.overdue,g.urgent])].map(row=>row.map(csvCell).join(';')).join('\r\n')+'\r\n';
           res.writeHead(200, { 'Content-Type':'text/csv; charset=utf-8', 'Content-Disposition':'attachment; filename="cosmos-resumo-setores.csv"', 'Cache-Control':'no-store' });
           return res.end('\uFEFF'+csv);
         }
         const labels = { pendente: 'Pendente', aprovada: 'Aprovada', recusada: 'Recusada', normal: 'Normal', alta: 'Alta', urgente: 'Urgente' };
         const header = ['Protocolo', 'Título', 'Solicitante', 'Setor', 'Situação', 'Prioridade', 'Descrição', 'Criada em (UTC)', 'Decidida em (UTC)', 'Responsável pela decisão', 'Parecer', 'Prazo (AAAA-MM-DD)', 'Responsável pela análise'];
-        const csv = [header, ...orderRequests(rows, order).map(r => [`COS-${String(r.id).padStart(5, '0')}`, r.title, r.author, r.sector, labels[r.status], labels[r.priority], r.description, r.created_at, r.decided_at, r.reviewer, r.decision, r.due_date, r.assignee_name])]
-          .map(row => row.map(csvCell).join(';')).join('\r\n') + '\r\n';
+        const exportRows = orderRequests(rows, order).map(r => [`COS-${String(r.id).padStart(5, '0')}`, r.title, r.author, r.sector, labels[r.status], labels[r.priority], r.description, r.created_at, r.decided_at, r.reviewer, r.decision, r.due_date, r.assignee_name]);
+        if(spreadsheet) return sendSpreadsheet('cosmos-solicitacoes',header,exportRows,'Solicitações');
+        const csv = [header,...exportRows].map(row => row.map(csvCell).join(';')).join('\r\n')+'\r\n';
         res.writeHead(200, {
           'Content-Type': 'text/csv; charset=utf-8',
           'Content-Disposition': 'attachment; filename="cosmos-solicitacoes.csv"',
