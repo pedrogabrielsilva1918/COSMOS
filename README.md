@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Exportar pessoas
+
+Em **Pessoas → Exportar pessoas CSV**, administradores podem baixar nome, e-mail, setor, perfil e situação de acesso da equipe. A busca e os filtros de setor, perfil e acesso são aplicados também ao arquivo, usando a mesma função de filtro da tela. Sem resultados, o CSV contém apenas o cabeçalho. Inclui contas desativadas quando não houver filtro de acesso.
+
+`GET /api/users/export.csv` aceita `q` (até 200 caracteres), `sector_id`, `role` (`admin` ou `colaborador`) e `access` (`active` ou `inactive`). Exige administrador e consulta somente a organização da sessão. Filtros inválidos são rejeitados com 400. Usa UTF-8 com BOM, separador ponto e vírgula, proteção contra fórmulas e resposta sem cache. Senhas, sessões e demais dados internos não entram no arquivo.
+
 ## Editar meu nome
 
 Qualquer pessoa autenticada pode abrir **Minha conta → Editar meu nome**. O nome aceita até 120 caracteres e aparece atualizado na identificação da conta, nos pedidos e comentários vinculados. E-mail, setor, perfil, senha e sessões são preservados. O histórico registra o nome anterior e o novo.

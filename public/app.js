@@ -238,6 +238,28 @@ function renderPeople() {
 $('#people-search').oninput = renderPeople;
 for (const id of ['people-sector-filter', 'people-role-filter', 'people-access-filter']) $(`#${id}`).onchange = renderPeople;
 $('#clear-people-filters').onclick = () => { clearPeopleFilters(); renderPeople(); $('#people-search').focus(); };
+$('#export-people').onclick = async () => {
+  if (!state || state.user.role !== 'admin') return;
+  const button=$('#export-people'), epoch=workspaceEpoch;
+  const params=new URLSearchParams({q:$('#people-search').value.trim(),sector_id:$('#people-sector-filter').value,role:$('#people-role-filter').value,access:$('#people-access-filter').value});
+  button.disabled=true; button.textContent='Preparando…';
+  try {
+    const response=await fetch(`/api/users/export.csv?${params}`);
+    if (epoch!==workspaceEpoch || !state || state.user.role!=='admin') return;
+    if (!response.ok) {
+      const data=await response.json();
+      if (epoch!==workspaceEpoch) return;
+      if (response.status===401) {state=null;$('#modal').close();showAuth();}
+      throw new Error(data.error||'Não foi possível exportar as pessoas.');
+    }
+    const file=await response.blob();
+    if (epoch!==workspaceEpoch || !state || state.user.role!=='admin') return;
+    const url=URL.createObjectURL(file), link=document.createElement('a');
+    link.href=url;link.download='cosmos-pessoas.csv';document.body.append(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),60000);notify('Lista de pessoas preparada para download.');
+  } catch(error) {if(epoch===workspaceEpoch)notify(error.message);}
+  finally {button.disabled=false;button.textContent='Exportar pessoas CSV ↓';}
+};
 function clearSectorFilters() { $('#sector-search').value = ''; $('#sector-status-filter').value = ''; }
 function renderSectors() {
   const admin = state.user.role === 'admin';
