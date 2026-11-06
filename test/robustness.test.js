@@ -259,3 +259,27 @@ test('decisão rejeita conteúdo desatualizado sem gravar decisão, histórico o
   assert.equal((await post(base,path,{status:'aprovada',decision:'Conteúdo atual conferido',expected:final},{cookie:admin.cookie})).status,200);
   current=await workspace(admin.cookie);assert.equal(current.requests.find(r=>r.id===id).status,'aprovada');assert.equal((await workspace(author.cookie)).notification_unread,1);
 });
+
+test('organização: somente administrador edita a própria, com validação e histórico',async t=>{
+  const {app,base}=await start();t.after(()=>stop(app));
+  const a=await post(base,'/api/register',{name:'Admin A',organization:'Original A',type:'privada',email:'org-a@example.com',password});
+  const b=await post(base,'/api/register',{name:'Admin B',organization:'Original B',type:'publica',email:'org-b@example.com',password});
+  const workspace=async cookie=>(await fetch(base+'/api/workspace',{headers:{cookie}})).json();
+  const before=await workspace(a.cookie),otherBefore=await workspace(b.cookie),sector=before.sectors[0].id;
+  await post(base,'/api/users',{name:'Colaborador',email:'org-user@example.com',password,role:'colaborador',sector_id:sector},{cookie:a.cookie});
+  const author=await post(base,'/api/login',{email:'org-user@example.com',password});
+  const request=await post(base,'/api/requests',{title:'Pedido preservado',description:'Teste de cadastro',priority:'normal',sector_id:sector},{cookie:author.cookie});
+  const original=(await workspace(a.cookie)).requests.find(r=>r.id===request.data.id);
+  const body={name:'Organização atualizada & equipe',type:'publica',org_id:otherBefore.organization.id};
+  assert.equal((await post(base,'/api/organization',body)).status,401);
+  assert.equal((await post(base,'/api/organization',body,{cookie:author.cookie})).status,403);
+  for(const invalid of [{...body,name:' '},{...body,name:'x'.repeat(161)},{...body,type:'outra'}])assert.equal((await post(base,'/api/organization',invalid,{cookie:a.cookie})).status,400);
+  assert.equal((await post(base,'/api/organization',body,{cookie:a.cookie})).status,200);
+  let after=await workspace(a.cookie);assert.equal(after.organization.name,body.name);assert.equal(after.organization.type,body.type);assert.equal(after.organization.id,before.organization.id);
+  assert.deepEqual(after.requests.find(r=>r.id===request.data.id),original);
+  assert.deepEqual((await workspace(b.cookie)).organization,otherBefore.organization);
+  assert.equal((await workspace(author.cookie)).organization.name,body.name);
+  const changes=after.history.filter(h=>h.action.startsWith('Organização atualizada:'));assert.equal(changes.length,1);assert.match(changes[0].action,/Original A/);assert.match(changes[0].action,/privada → pública/);
+  await post(base,'/api/organization',body,{cookie:a.cookie});after=await workspace(a.cookie);assert.equal(after.history.filter(h=>h.action.startsWith('Organização atualizada:')).length,1);
+  const printed=await fetch(base+`/api/requests/${request.data.id}/print`,{headers:{cookie:author.cookie}});assert.equal(printed.status,200);assert.match(await printed.text(),/Organização atualizada &amp; equipe/);
+});

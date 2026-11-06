@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Editar organização
+
+Administradores podem abrir **Organização** no menu para atualizar nome e natureza pública ou privada. Salvar atualiza a identificação no sistema e nas novas impressões; pedidos, pessoas, setores e sessões são preservados. A natureza é uma identificação cadastral e não altera as permissões.
+
+`POST /api/organization` aceita `name` (até 160 caracteres) e `type` (`publica` ou `privada`). O servidor usa somente a organização da sessão, verifica o perfil administrador novamente dentro da transação e grava as alterações junto do histórico. Salvar sem mudanças não cria movimentação. Colaboradores não veem o atalho e recebem 403 na API. Não há migração do banco.
+
 ## Decidir sobre o conteúdo atual
 
 Ao aprovar ou recusar, o cliente envia `expected: {title, description}` com o texto que o administrador abriu para analisar. O servidor exige esses campos e os compara ao pedido atual dentro da transação da decisão. Se o solicitante tiver alterado o conteúdo, retorna 409 sem mudar a situação, o histórico ou as notificações. Feche o pedido, atualize os dados e reabra para conferir a versão atual antes de decidir.
