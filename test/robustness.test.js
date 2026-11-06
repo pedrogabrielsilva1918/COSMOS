@@ -116,3 +116,31 @@ test('limite do corpo usa bytes: 24000 aceitos, excesso rejeitado e JSON inváli
   assert.equal((await send(body+' '.repeat(remaining+1))).status,413);
   for(const invalid of ['{','null','[]','"texto"']) assert.equal((await send(invalid)).status,400);
 });
+
+test('encerrar outros acessos preserva sessão atual e contas alheias', async t => {
+  const {app,base}=await start();t.after(()=>stop(app));
+  const a=await post(base,'/api/register',{name:'Ana',organization:'A',type:'privada',email:'sessao-a@exemplo.com',password});
+  const b=await post(base,'/api/register',{name:'Bia',organization:'B',type:'publica',email:'sessao-b@exemplo.com',password});
+  const workspace=async cookie=>fetch(base+'/api/workspace',{headers:{cookie}});
+  const initial=await (await workspace(a.cookie)).json();
+  await post(base,'/api/users',{name:'Colega',email:'sessao-c@exemplo.com',password,sector_id:initial.sectors[0].id,role:'colaborador'},{cookie:a.cookie});
+  const c=await post(base,'/api/login',{email:'sessao-c@exemplo.com',password});
+  const second=await post(base,'/api/login',{email:'sessao-a@exemplo.com',password});
+  const third=await post(base,'/api/login',{email:'sessao-a@exemplo.com',password});
+  assert.equal((await post(base,'/api/account/sessions/revoke-others',{})).status,401);
+  const revoke=await post(base,'/api/account/sessions/revoke-others',{}, {cookie:a.cookie});
+  assert.equal(revoke.status,200);assert.equal(revoke.data.revoked,2);assert.equal(revoke.cookie,undefined);
+  assert.equal((await workspace(a.cookie)).status,200);
+  for(const cookie of [second.cookie,third.cookie]) assert.equal((await workspace(cookie)).status,401);
+  for(const cookie of [b.cookie,c.cookie]) assert.equal((await workspace(cookie)).status,200);
+  const again=await post(base,'/api/account/sessions/revoke-others',{}, {cookie:a.cookie});assert.equal(again.data.revoked,0);
+  assert.equal((await post(base,'/api/account/sessions/revoke-others',{}, {cookie:second.cookie})).status,401);
+  const restored=await post(base,'/api/login',{email:'sessao-a@exemplo.com',password});assert.equal(restored.status,200);
+  const history=(await (await workspace(a.cookie)).json()).history;
+  assert.equal(history.filter(h=>h.action==='Outros acessos da própria conta encerrados').length,1);
+  // A mesma operação funciona para colaborador e preserva a própria sessão dele.
+  const colleagueOther=await post(base,'/api/login',{email:'sessao-c@exemplo.com',password});
+  assert.equal((await post(base,'/api/account/sessions/revoke-others',{}, {cookie:c.cookie})).data.revoked,1);
+  assert.equal((await workspace(colleagueOther.cookie)).status,401);assert.equal((await workspace(c.cookie)).status,200);
+  assert.equal((await workspace(a.cookie)).status,200);
+});
