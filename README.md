@@ -2,6 +2,10 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Visual simples e leve
+
+O visual usa fundo claro, menu lateral branco, verde nas ações principais e componentes com bordas discretas. A página inicial tem uma saudação curta e indicadores neutros, com menos decoração e espaçamentos mais compactos. A ilustração grande foi removida. Menu, tabelas, formulários, notificações e entrada seguem a mesma linguagem visual, com adaptação ao celular. Não há fontes, imagens ou bibliotecas externas novas. As funções, filtros e permissões permanecem as mesmas.
+
 ## Páginas de solicitações
 
 A lista apresenta até **25 pedidos por página**, com **Anterior** e **Próxima** acima e abaixo da tabela. Os controles aparecem somente quando há mais de uma página. A indicação de resultados informa o intervalo exibido e o total filtrado.
