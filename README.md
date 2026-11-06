@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Histórico por período
+
+No **Histórico**, combine a busca com **A partir de** e **Até**. As datas incluem o dia inteiro no horário de Brasília (`America/Sao_Paulo`); deixe um dos limites vazio para um intervalo aberto. Clique em **Buscar** após alterar o texto ou as datas. **Limpar busca** remove também o período. Atualizar os dados preserva os valores; sair da conta os remove.
+
+As APIs `/api/history` e `/api/history/export.csv` aceitam `from=AAAA-MM-DD` e `to=AAAA-MM-DD`, rejeitando datas inexistentes ou invertidas. O filtro ocorre antes da paginação e é reaplicado nas páginas anteriores e na exportação. A data das colunas do CSV continua em UTC. Não há alteração no banco ou nas permissões.
+
 ## Exportar histórico
 
 Administradores podem usar **Histórico → Exportar histórico CSV** após concluir uma consulta. O arquivo inclui todos os registros correspondentes à busca, não apenas as páginas carregadas, com número do registro, data em UTC, responsável e ação. Os registros aparecem do mais recente para o mais antigo; a busca mantém as regras de acentos e palavras da tela.
