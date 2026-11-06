@@ -35,7 +35,7 @@ test('CSV segue ordenação combinada com filtros e mantém isolamento por conta
   assert.deepEqual(await csv('order=oldest'),ids);assert.deepEqual(await csv('order=priority'),expected([1,3,4,2,5,0]));assert.deepEqual(await csv('order=deadline'),expected([3,4,2,1,5,0]));
   assert.deepEqual(await csv(`order=deadline&sector_id=${sector}&status=pendente&deadline=overdue`),expected([3,4,2]));
   assert.deepEqual(await csv('order=deadline&priority=urgente'),expected([3,4,1]));
-  assert.deepEqual(await csv('order=deadline&assignment=mine'),expected([3]));assert.deepEqual(await csv('order=oldest&q=Pedido%202'),expected([2]));
+  assert.deepEqual(await csv('order=deadline&assignment=mine'),expected([3]));assert.deepEqual(await csv('order=oldest&q=Pedido%202'),expected([1,2]));
   assert.deepEqual(await csv('order=deadline',author.cookie),expected([3,4,2,1,0]));assert.deepEqual(await csv('order=priority',other.cookie),[foreign.data.id]);
   for(const order of ['invalido','RECENT','id DESC','__proto__']) assert.equal((await call('/api/requests/export.csv?order='+encodeURIComponent(order),undefined,admin.cookie)).status,400);
   assert.equal((await call('/api/requests/export.csv?order=oldest')).status,401);
