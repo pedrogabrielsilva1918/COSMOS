@@ -220,11 +220,13 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         return json(200, { ok: true });
       }
       if (req.method === 'GET' && path === '/api/notifications') {
+        const status = url.searchParams.get('status') || 'all';
+        if (!['all','unread','read'].includes(status)) fail(400, 'Filtro de notificações inválido.');
         const rawBefore = url.searchParams.get('before');
         if (rawBefore !== null && !/^[1-9]\d*$/.test(rawBefore)) fail(400, 'Cursor de notificações inválido.');
         const before = rawBefore === null ? Number.MAX_SAFE_INTEGER : Number(rawBefore);
         if (!Number.isSafeInteger(before) || before <= 0) fail(400, 'Cursor de notificações inválido.');
-        const rows = db.prepare('SELECT n.id,n.request_id,n.message,n.read_at,n.created_at,a.name AS actor FROM notifications n JOIN requests r ON r.id=n.request_id AND r.org_id=n.org_id AND r.user_id=n.user_id JOIN users a ON a.id=n.actor_id AND a.org_id=n.org_id WHERE n.org_id=? AND n.user_id=? AND n.id<? ORDER BY n.id DESC LIMIT 51').all(user.org_id,user.id,before);
+        const rows = db.prepare("SELECT n.id,n.request_id,n.message,n.read_at,n.created_at,a.name AS actor FROM notifications n JOIN requests r ON r.id=n.request_id AND r.org_id=n.org_id AND r.user_id=n.user_id JOIN users a ON a.id=n.actor_id AND a.org_id=n.org_id WHERE n.org_id=? AND n.user_id=? AND n.id<? AND (?='all' OR (?='unread' AND n.read_at IS NULL) OR (?='read' AND n.read_at IS NOT NULL)) ORDER BY n.id DESC LIMIT 51").all(user.org_id,user.id,before,status,status,status);
         const notifications = rows.slice(0,50);
         return json(200, { notifications, unreadCount: unreadNotifications(user), nextBefore: rows.length > 50 ? notifications.at(-1).id : null });
       }

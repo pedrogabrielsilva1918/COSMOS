@@ -4,6 +4,8 @@ Gestão administrativa para empresas privadas e organizações públicas. Primei
 
 ## Notificações de decisões
 
+Em **Mostrar avisos**, escolha **Todos**, **Não lidos** ou **Lidos**. O filtro é aplicado no servidor antes da paginação e permanece ao atualizar ou marcar avisos. O contador do menu e o total de não lidos incluem todos os seus avisos. Na opção Lidos, a leitura em lote fica desabilitada. Sair da conta restaura Todos.
+
 **Marcar todas como lidas** alcança seus avisos até o mais recente da lista carregada, incluindo páginas anteriores. Avisos recebidos depois desse limite permanecem não lidos. A ação atualiza a lista e o contador; pode ser repetida sem alterar a data de leitura já registrada.
 
 
@@ -13,7 +15,7 @@ A central apresenta páginas de até 50 avisos, com **Carregar avisos anteriores
 
 A inicialização cria a tabela de notificações e índices sem apagar registros. Decisões anteriores à atualização não geram avisos retroativos. A decisão, seu histórico e a notificação são salvos na mesma transação; uma falha desfaz o conjunto. Os estados de leitura são persistentes. Faça backup antes de iniciar a versão atualizada.
 
-A API `GET /api/notifications?before=ID` retorna `notifications`, `nextBefore` e `unreadCount` apenas para a pessoa e organização da sessão. `POST /api/notifications/:id/read`, com JSON `{}`, marca um aviso próprio; repetir a ação é permitido e não altera a primeira data de leitura. O workspace inclui `notification_unread`.
+A API `GET /api/notifications?status=all|unread|read&before=ID` retorna `notifications`, `nextBefore` e `unreadCount` apenas para a pessoa e organização da sessão. `POST /api/notifications/:id/read`, com JSON `{}`, marca um aviso próprio; repetir a ação é permitido e não altera a primeira data de leitura. O workspace inclui `notification_unread`.
 
 ## Consultar todo o histórico
 

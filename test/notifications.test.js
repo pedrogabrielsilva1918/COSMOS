@@ -55,6 +55,20 @@ test('notificações: administrador recebe apenas decisões próprias, com pági
   const all=[...first.notifications,...second.notifications];assert.equal(new Set(all.map(n=>n.id)).size,55);for(let i=1;i<all.length;i++)assert.ok(all[i-1].id>all[i].id);
   assert.deepEqual((await c.call('/api/notifications',undefined,c.admin.cookie)).data.notifications,[]);
   for(const before of ['0','-1','1.5','1e3','01','9007199254740992',''])assert.equal((await c.call('/api/notifications?before='+encodeURIComponent(before),undefined,author.cookie)).status,400);
+  for(const n of first.notifications.slice(0,3)) await c.call(`/api/notifications/${n.id}/read`,{},author.cookie);
+  const unread=(await c.call('/api/notifications?status=unread',undefined,author.cookie)).data;
+  assert.equal(unread.notifications.length,50);assert.equal(unread.unreadCount,52);assert.ok(unread.notifications.every(n=>n.read_at===null));
+  const unreadOlder=(await c.call('/api/notifications?status=unread&before='+unread.nextBefore,undefined,author.cookie)).data;
+  assert.equal(unreadOlder.notifications.length,2);assert.equal(unreadOlder.nextBefore,null);
+  assert.equal(new Set([...unread.notifications,...unreadOlder.notifications].map(n=>n.id)).size,52);
+  const read=(await c.call('/api/notifications?status=read',undefined,author.cookie)).data;
+  assert.equal(read.notifications.length,3);assert.ok(read.notifications.every(n=>n.read_at));assert.equal(read.unreadCount,52);assert.equal(read.nextBefore,null);
+  const explicitAll=(await c.call('/api/notifications?status=all',undefined,author.cookie)).data;
+  assert.equal(explicitAll.notifications.length,50);assert.equal(explicitAll.unreadCount,52);
+  for(const status of ['read','unread']) assert.deepEqual((await c.call('/api/notifications?status='+status,undefined,c.admin.cookie)).data.notifications,[]);
+  for(const status of ['unknown','READ',"unread' OR 1=1--"]) assert.equal((await c.call('/api/notifications?status='+encodeURIComponent(status),undefined,author.cookie)).status,400);
+  await c.call('/api/notifications/read-all',{through:first.notifications[0].id},author.cookie);
+  assert.deepEqual((await c.call('/api/notifications?status=unread',undefined,author.cookie)).data,{notifications:[],unreadCount:0,nextBefore:null});
   const response=await fetch(c.base+'/api/notifications',{headers:{cookie:author.cookie}});assert.equal(response.headers.get('cache-control'),'no-store');
 });
 

@@ -111,32 +111,41 @@ function table(requests) {
   return `<table class="data-table request-table"><thead><tr><th>SOLICITAÇÃO</th><th>SETOR</th><th>SITUAÇÃO</th><th>PRIORIDADE</th><th>PRAZO</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>${requests.map(r => `<tr><td data-label="Solicitação"><span class="request-title">${escapeHTML(r.title)}</span><span class="request-id">COS-${String(r.id).padStart(5, '0')} · ${escapeHTML(r.author)}</span><span class="request-assignee-line">Responsável: ${assigneeBadge(r)}</span></td><td data-label="Setor">${escapeHTML(r.sector)}</td><td data-label="Situação">${pill(r.status)}</td><td data-label="Prioridade"><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase() + r.priority.slice(1))}</span></td><td data-label="Prazo">${deadlineBadge(r)}</td><td data-label="Ações"><button class="row-open" data-request="${r.id}" aria-label="Abrir solicitação ${r.id}">Abrir ↗</button></td></tr>`).join('')}</tbody></table>`;
 }
 function updateNotificationBadge(count) {
-  $('#notification-read-all').disabled = count === 0 || notificationReadThrough === null;
+  $('#notification-read-all').disabled = count === 0 || notificationReadThrough === null || $('#notification-filter').value === 'read';
   $('#notification-count').textContent = count; $('#notification-count').hidden = count === 0;
 }
 function resetNotifications() {
   notificationGeneration++; notificationNextBefore = null; notificationCount = 0; notificationReadThrough = null;
+  $('#notification-filter').value = 'all';
   $('#notification-list').replaceChildren(); $('#notification-results').textContent = ''; $('#notification-error').textContent = ''; $('#notification-older').hidden = true; $('#notification-older').disabled = false; updateNotificationBadge(0);
 }
 async function loadNotifications(before = null) {
   if (!state) return;
-  const generation = ++notificationGeneration, epoch = workspaceEpoch;
+  const generation = ++notificationGeneration, epoch = workspaceEpoch, status = $('#notification-filter').value;
   $('#notification-older').disabled = true; $('#notification-error').textContent = ''; $('#notification-results').textContent = 'Consultando avisos…';
   try {
-    const data = await api(`/notifications${before === null ? '' : `?before=${before}`}`);
+    const params = new URLSearchParams({ status });
+    if (before !== null) params.set('before',before);
+    const data = await api(`/notifications?${params}`);
     if (generation !== notificationGeneration || epoch !== workspaceEpoch || !state) return;
     const html = data.notifications.map(n => `<article class="notification-card ${n.read_at ? '' : 'notification-unread'}"><span class="notification-symbol">${icon('bell')}</span><div class="notification-content"><span class="notification-state">${n.read_at ? 'Lida' : 'Não lida'}</span><h2>${escapeHTML(n.message)}</h2><p>${escapeHTML(n.actor)} · ${date(n.created_at)}</p><div class="notification-actions"><button type="button" class="row-open" data-notification="${n.id}" data-open-request="${n.request_id}">Ver pedido ↗</button>${n.read_at ? '' : `<button type="button" class="text-button" data-notification="${n.id}">Marcar como lida</button>`}</div></div></article>`).join('');
-    if (before === null) $('#notification-list').innerHTML = html || '<div class="empty panel"><strong>Nenhuma notificação por enquanto.</strong>As novas aprovações e recusas dos seus pedidos aparecerão aqui.</div>';
+    if (before === null) $('#notification-list').innerHTML = html || `<div class="empty panel"><strong>${status === 'unread' ? 'Nenhum aviso não lido.' : status === 'read' ? 'Nenhum aviso lido.' : 'Nenhuma notificação por enquanto.'}</strong>${status === 'all' ? 'As novas aprovações e recusas dos seus pedidos aparecerão aqui.' : 'Escolha Todos para consultar os demais avisos.'}</div>`;
     else $('#notification-list').insertAdjacentHTML('beforeend',html);
     notificationCount = before === null ? data.notifications.length : notificationCount + data.notifications.length;
     notificationNextBefore = data.nextBefore; $('#notification-older').hidden = notificationNextBefore === null;
     if (before === null) notificationReadThrough = data.notifications[0]?.id ?? null;
     updateNotificationBadge(data.unreadCount); state.notification_unread = data.unreadCount;
-    $('#notification-results').textContent = `${notificationCount} ${notificationCount === 1 ? 'aviso exibido' : 'avisos exibidos'} · ${data.unreadCount} não ${data.unreadCount === 1 ? 'lido' : 'lidos'}`;
+    $('#notification-results').textContent = `${notificationCount} ${notificationCount === 1 ? 'aviso exibido' : 'avisos exibidos'} · ${data.unreadCount} não ${data.unreadCount === 1 ? 'lido' : 'lidos'} no total`;
   } catch(error) {
     if (generation === notificationGeneration && epoch === workspaceEpoch) { $('#notification-error').textContent = error.message; $('#notification-results').textContent = notificationCount ? 'Não foi possível atualizar. Os avisos anteriores foram mantidos.' : ''; }
   } finally { if (generation === notificationGeneration && epoch === workspaceEpoch) $('#notification-older').disabled = false; }
 }
+$('#notification-filter').onchange = () => {
+  notificationNextBefore = null; notificationReadThrough = null; notificationCount = 0;
+  $('#notification-list').replaceChildren(); $('#notification-older').hidden = true;
+  updateNotificationBadge(state?.notification_unread || 0);
+  loadNotifications();
+};
 $('#notification-read-all').onclick = async () => {
   if (!state || notificationReadThrough === null) return;
   const epoch = workspaceEpoch, through = notificationReadThrough;
