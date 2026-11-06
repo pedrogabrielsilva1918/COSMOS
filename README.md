@@ -2,6 +2,14 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Relatório resumido por setor
+
+Em **Solicitações → Resumo por setor**, baixe um CSV com uma linha por setor que tenha pedidos correspondentes aos filtros. Colunas: total, pendentes, aprovadas, recusadas, pendentes vencidas e pendentes urgentes. Os dois últimos indicadores são subconjuntos das pendentes e não devem ser somados ao total.
+
+O relatório respeita busca, período, situação, setor, prioridade, prazo e fila selecionados. Por exemplo, filtrar somente aprovadas produz zero pendentes. A ordem das linhas é alfabética pelo nome atual do setor; a ordenação individual de pedidos não muda a ordem do resumo. Colaboradores recebem somente totais dos próprios pedidos; administradores, da organização. Sem resultados, o arquivo contém apenas o cabeçalho.
+
+`GET /api/requests/summary.csv` aceita os mesmos parâmetros e validações do CSV detalhado e usa a mesma seleção autorizada antes de agrupar. O arquivo usa UTF-8 com BOM e ponto e vírgula e protege células de texto contra fórmulas. Não inclui nomes de pessoas, justificativas ou pareceres. Não há alteração no banco.
+
 ## Período de criação das solicitações
 
 Em **Solicitações**, use **Criadas a partir de** e **Criadas até**. Os limites incluem todo o dia escolhido no fuso `America/Sao_Paulo` (horário de Brasília), independentemente do fuso do navegador. Preencha apenas uma data para deixar o outro limite em aberto. O período combina com busca, filtros e ordenação e também vale para o CSV.
