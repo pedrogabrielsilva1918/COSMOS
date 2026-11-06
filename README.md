@@ -2,6 +2,14 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Editar meu pedido
+
+Abra uma solicitação própria pendente e clique em **Editar meu pedido** para corrigir título e descrição/justificativa. A edição mantém protocolo, setor, prioridade, prazo, responsável, comentários e data de criação. Administradores também só editam os próprios pedidos; pedidos decididos não podem ser editados. As movimentações registram o título anterior e o novo e indicam se a justificativa foi atualizada, sem manter versões anteriores do texto completo.
+
+Se outro navegador alterar o título ou a descrição, ou se uma decisão for registrada antes de salvar, a edição é rejeitada. Feche o formulário, atualize os dados e reabra o pedido para conferir a versão atual. Salvar sem mudanças não acrescenta movimentação.
+
+`POST /api/requests/:id/edit` exige `title`, `description` e `expected: {title, description}` com os valores originais. A edição e a movimentação são gravadas na mesma transação. Não há mudança no esquema do banco.
+
 ## Notificações de decisões
 
 Em **Mostrar avisos**, escolha **Todos**, **Não lidos** ou **Lidos**. O filtro é aplicado no servidor antes da paginação e permanece ao atualizar ou marcar avisos. O contador do menu e o total de não lidos incluem todos os seus avisos. Na opção Lidos, a leitura em lote fica desabilitada. Sair da conta restaura Todos.
@@ -352,6 +360,6 @@ Todas as operações de escrita recebem JSON. O cookie de sessão é emitido pel
 
 Este MVP não é uma implantação de produção. Antes de usar dados reais de funcionários ou órgãos, configure HTTPS, persistência e backups com restauração validada, revisão de acesso e política de retenção. O cadastro de organizações está aberto; restrinja-o no ambiente institucional se necessário. A proteção de tentativas é por IP e processo; por padrão ignora cabeçalhos de proxy. O modo opcional de proxy exige uma lista explícita de IPs confiáveis, conforme descrito abaixo.
 
-Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail, anexos, edição de solicitações, notificações por e-mail ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
+Ainda não há recuperação de senha esquecida, MFA, convites por e-mail, edição de e-mail, anexos, notificações por e-mail ou integração com sistemas governamentais. Não há garantia automática de conformidade com LGPD ou regras administrativas. O histórico é um registro de aplicação no banco, não uma trilha imutável de auditoria.
 
 Use `npm run backup` para gerar uma cópia SQLite autônoma e verificada. Como alternativa manual, pare o servidor e copie o diretório `data` completo, incluindo eventuais arquivos WAL/SHM. Guarde uma cópia fora do Codespace e limite o acesso.

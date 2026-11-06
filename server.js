@@ -403,6 +403,27 @@ export function createApp({ databasePath = process.env.DATABASE_PATH || join(roo
         const id = transaction(() => { const id = Number(db.prepare('INSERT INTO requests(org_id,user_id,sector_id,title,description,priority) VALUES (?,?,?,?,?,?)').run(user.org_id, user.id, sec, title, description, body.priority).lastInsertRowid); audit(user, `Solicitação #${id} criada: ${title}`, id); return id; });
         return json(201, { id });
       }
+      const editRequestMatch = /^\/api\/requests\/(\d+)\/edit$/.exec(path);
+      if (req.method === 'POST' && editRequestMatch) {
+        const body = await readBody(req), id = Number(editRequestMatch[1]);
+        if (!Number.isSafeInteger(id) || id <= 0) fail(400, 'Solicitação inválida.');
+        const title = field(body, 'title', 160), description = field(body, 'description', 5000);
+        if (!body.expected || typeof body.expected.title !== 'string' || typeof body.expected.description !== 'string') fail(400, 'Reabra o pedido para editar.');
+        transaction(() => {
+          const request = db.prepare('SELECT * FROM requests WHERE id=? AND org_id=? AND user_id=?').get(id,user.org_id,user.id);
+          if (!request) fail(404, 'Solicitação não encontrada.');
+          if (request.status !== 'pendente') fail(409, 'Somente pedidos pendentes podem ser editados. Atualize os dados.');
+          if (request.title !== body.expected.title || request.description !== body.expected.description) fail(409, 'O pedido foi alterado em outra janela. Reabra a solicitação antes de editar.');
+          if (request.title !== title || request.description !== description) {
+            db.prepare('UPDATE requests SET title=?,description=? WHERE id=? AND org_id=? AND user_id=?').run(title,description,id,user.org_id,user.id);
+            const changes = [];
+            if (request.title !== title) changes.push(`título: ${request.title} → ${title}`);
+            if (request.description !== description) changes.push('descrição e justificativa atualizadas');
+            audit(user, `Solicitação #${id} editada pelo solicitante: ${changes.join('; ')}`,id);
+          }
+        });
+        return json(200, { ok:true });
+      }
       const assigneeMatch = /^\/api\/requests\/(\d+)\/assignee$/.exec(path);
       if (req.method === 'POST' && assigneeMatch) {
         admin(user); const body = await readBody(req); const assignedTo = body.assigned_to;

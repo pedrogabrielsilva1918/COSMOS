@@ -144,3 +144,36 @@ test('encerrar outros acessos preserva sessão atual e contas alheias', async t 
   assert.equal((await workspace(colleagueOther.cookie)).status,401);assert.equal((await workspace(c.cookie)).status,200);
   assert.equal((await workspace(a.cookie)).status,200);
 });
+
+test('solicitante edita apenas pedido próprio pendente e detecta versão desatualizada',async t=>{
+  const {app,base}=await start();t.after(()=>stop(app));
+  const admin=await post(base,'/api/register',{name:'Admin',organization:'Edição',type:'privada',email:'edit-admin@example.com',password});
+  const workspace=async cookie=>(await fetch(base+'/api/workspace',{headers:{cookie}})).json();
+  const sector=(await workspace(admin.cookie)).sectors[0].id;
+  await post(base,'/api/users',{name:'Autor',email:'edit-author@example.com',password,role:'colaborador',sector_id:sector},{cookie:admin.cookie});
+  const author=await post(base,'/api/login',{email:'edit-author@example.com',password});
+  const other=await post(base,'/api/register',{name:'Outro',organization:'Outra',type:'publica',email:'edit-other@example.com',password});
+  const original={title:'Título original',description:'Justificativa original'};
+  const created=await post(base,'/api/requests',{...original,priority:'alta',sector_id:sector},{cookie:author.cookie});
+  const path=`/api/requests/${created.data.id}/edit`,body={title:'Título corrigido',description:'Justificativa corrigida',expected:original};
+  const before=(await workspace(author.cookie)).requests[0];
+  assert.equal((await post(base,path,body)).status,401);
+  for(const cookie of [admin.cookie,other.cookie]) assert.equal((await post(base,path,body,{cookie})).status,404);
+  assert.equal((await post(base,path,{...body,title:' '},{cookie:author.cookie})).status,400);
+  assert.equal((await post(base,path,{...body,title:'x'.repeat(161)},{cookie:author.cookie})).status,400);
+  assert.equal((await post(base,path,{...body,expected:null},{cookie:author.cookie})).status,400);
+  assert.equal((await post(base,path,body,{cookie:author.cookie})).status,200);
+  let after=(await workspace(author.cookie)).requests[0];
+  assert.equal(after.title,body.title);assert.equal(after.description,body.description);
+  for(const key of ['id','user_id','sector_id','priority','status','created_at','due_date','assigned_to'])assert.equal(after[key],before[key]);
+  assert.equal((await post(base,path,{...body,title:'É outra mudança'},{cookie:author.cookie})).status,409);
+  const history=async()=>(await fetch(base+`/api/requests/${created.data.id}/history`,{headers:{cookie:author.cookie}})).json();
+  let movements=(await history()).history;assert.equal(movements.filter(h=>h.action.includes('editada pelo solicitante')).length,1);
+  const noChange={title:body.title,description:body.description,expected:{title:body.title,description:body.description}};
+  assert.equal((await post(base,path,noChange,{cookie:author.cookie})).status,200);assert.deepEqual((await history()).history,movements);
+  assert.equal((await post(base,`/api/requests/${created.data.id}/decision`,{status:'aprovada',decision:'Aprovado após correção'},{cookie:admin.cookie})).status,200);
+  assert.equal((await post(base,path,{...noChange,title:'Após aprovação'},{cookie:author.cookie})).status,409);
+  after=(await workspace(author.cookie)).requests[0];assert.equal(after.title,body.title);assert.equal(after.status,'aprovada');
+  const own=await post(base,'/api/requests',{...original,priority:'normal',sector_id:sector},{cookie:admin.cookie});
+  assert.equal((await post(base,`/api/requests/${own.data.id}/edit`,body,{cookie:admin.cookie})).status,200);
+});
