@@ -588,7 +588,7 @@ function showRequest(id) {
   mountRequestHistory(id);
   if (canDecide) $('#decision-form').onsubmit = async event => {
     event.preventDefault(); const buttons = event.target.querySelectorAll('button'); buttons.forEach(b => b.disabled = true);
-    try { await api(`/requests/${id}/decision`, { decision: new FormData(event.target).get('decision'), status: event.submitter.value }); $('#modal').close(); await refresh(); notify('Decisão registrada.'); }
+    try { await api(`/requests/${id}/decision`, { decision: new FormData(event.target).get('decision'), status: event.submitter.value, expected: { title: r.title, description: r.description } }); $('#modal').close(); await refresh(); notify('Decisão registrada.'); }
     catch (error) { if ($('#decision-error')) $('#decision-error').textContent = error.message; else notify(error.message); } finally { buttons.forEach(b => b.disabled = false); }
   };
 }

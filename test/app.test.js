@@ -1,3 +1,4 @@
+import { reviewedDecision } from '../test-support/reviewed-decision.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
@@ -11,7 +12,7 @@ test('autenticação, isolamento, permissões, decisões e persistência', async
   let app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   let base = `http://127.0.0.1:${app.address().port}`;
   t.after(async () => { if (app.listening) await new Promise(resolve => app.close(resolve)); rmSync(dir, { recursive: true, force: true }); });
-  async function call(path, body, cookie = '', extra = {}) {
+  async function call(path, body, cookie = '', extra = {}) { body = await reviewedDecision(base,path,body,cookie);
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie, ...extra }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
@@ -81,7 +82,7 @@ test('troca de senha exige senha atual e encerra somente as sessões da própria
   const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   t.after(() => new Promise(resolve => app.close(resolve)));
   const base = `http://127.0.0.1:${app.address().port}`;
-  async function call(path, body, cookie = '') {
+  async function call(path, body, cookie = '') { body = await reviewedDecision(base,path,body,cookie);
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
@@ -114,7 +115,7 @@ test('gestão de pessoas isola organizações, revoga acessos e preserva adminis
   const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   t.after(() => new Promise(resolve => app.close(resolve)));
   const base = `http://127.0.0.1:${app.address().port}`;
-  async function call(path, body, cookie = '') {
+  async function call(path, body, cookie = '') { body = await reviewedDecision(base,path,body,cookie);
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
@@ -185,7 +186,7 @@ test('comentários respeitam visibilidade, limites, paginação e persistência'
   let app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   let base = `http://127.0.0.1:${app.address().port}`;
   t.after(async () => { if (app.listening) await new Promise(resolve => app.close(resolve)); rmSync(dir, { recursive: true, force: true }); });
-  async function call(path, body, cookie = '') {
+  async function call(path, body, cookie = '') { body = await reviewedDecision(base,path,body,cookie);
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
@@ -241,7 +242,7 @@ test('CSV respeita filtros e acessos, preserva caracteres e neutraliza fórmulas
   const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   t.after(() => new Promise(resolve => app.close(resolve)));
   const base = `http://127.0.0.1:${app.address().port}`;
-  async function call(path, body, cookie = '') {
+  async function call(path, body, cookie = '') { body = await reviewedDecision(base,path,body,cookie);
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
@@ -302,7 +303,7 @@ test('setores: edição isolada, dependências, desativação e reativação sem
   const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   t.after(() => new Promise(resolve => app.close(resolve)));
   const base = `http://127.0.0.1:${app.address().port}`;
-  async function call(path, body, cookie = '') {
+  async function call(path, body, cookie = '') { body = await reviewedDecision(base,path,body,cookie);
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
@@ -387,7 +388,7 @@ test('prazos: migração, permissões, datas válidas, filtro CSV e persistênci
   let app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   let base = `http://127.0.0.1:${app.address().port}`;
   t.after(async () => { if (app.listening) await new Promise(resolve => app.close(resolve)); rmSync(dir, { recursive: true, force: true }); });
-  async function call(path, body, cookie = '') {
+  async function call(path, body, cookie = '') { body = await reviewedDecision(base,path,body,cookie);
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
@@ -450,7 +451,7 @@ test('três setores sugeridos: administrador, organização conectada e repetiç
   const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   t.after(() => new Promise(resolve => app.close(resolve)));
   const base = `http://127.0.0.1:${app.address().port}`;
-  async function call(path, body, cookie = '') {
+  async function call(path, body, cookie = '') { body = await reviewedDecision(base,path,body,cookie);
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
@@ -511,7 +512,7 @@ test('descrições: migração dos setores, edição autorizada e preservação 
   let app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   let base = `http://127.0.0.1:${app.address().port}`;
   t.after(async () => { if (app.listening) await new Promise(resolve => app.close(resolve)); rmSync(dir, { recursive: true, force: true }); });
-  async function call(path, body, cookie = '') {
+  async function call(path, body, cookie = '') { body = await reviewedDecision(base,path,body,cookie);
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
@@ -567,7 +568,7 @@ test('responsáveis: migração, isolamento, elegibilidade, transferência e dec
   let app = createApp({ databasePath }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   let base = `http://127.0.0.1:${app.address().port}`;
   t.after(async () => { if (app.listening) await new Promise(resolve => app.close(resolve)); rmSync(dir, { recursive: true, force: true }); });
-  async function call(path, body, cookie = '') {
+  async function call(path, body, cookie = '') { body = await reviewedDecision(base,path,body,cookie);
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
@@ -643,7 +644,7 @@ test('fila de análise: filtros CSV, combinação com prazo e restrição ao adm
   const app = createApp({ databasePath: ':memory:' }); app.listen(0, '127.0.0.1'); await once(app, 'listening');
   t.after(() => new Promise(resolve => app.close(resolve)));
   const base = `http://127.0.0.1:${app.address().port}`;
-  async function call(path, body, cookie = '') {
+  async function call(path, body, cookie = '') { body = await reviewedDecision(base,path,body,cookie);
     const response = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
   }
@@ -692,7 +693,7 @@ test('movimentações por pedido: migração, persistência, paginação e isola
   async function start() { app=createApp({databasePath}); app.listen(0,'127.0.0.1'); await once(app,'listening'); base=`http://127.0.0.1:${app.address().port}`; }
   async function stop() { await new Promise(resolve=>app.close(resolve)); }
   t.after(async()=>{if(app?.listening) await stop();rmSync(dir,{recursive:true,force:true});});
-  async function call(path,body,cookie='') { const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]}; }
+  async function call(path,body,cookie='') { body = await reviewedDecision(base,path,body,cookie); const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]}; }
   await start();
   const password='Teste-historico-2026';
   const a=await call('/api/register',{name:'Admin',organization:'Uma',type:'privada',email:'hist@uma.com',password});
@@ -738,7 +739,7 @@ test('filtros de setor e prioridade: combinações, setores antigos e exportaç�
   const app=createApp({databasePath:':memory:'}); app.listen(0,'127.0.0.1');await once(app,'listening');
   t.after(()=>new Promise(resolve=>app.close(resolve)));
   const base=`http://127.0.0.1:${app.address().port}`;
-  async function call(path,body,cookie='') {const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
+  async function call(path,body,cookie='') { body = await reviewedDecision(base,path,body,cookie);const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
   const password='Senha-filtros-2026';
   const admin=await call('/api/register',{name:'Admin',organization:'Empresa',type:'privada',email:'filtro@empresa.com',password});
   const other=await call('/api/register',{name:'Outra',organization:'Outra',type:'publica',email:'filtro@outra.com',password});
@@ -789,7 +790,7 @@ test('impressão do pedido: autorização, dados atuais, HTML seguro e ausência
   const app=createApp({databasePath:':memory:'});app.listen(0,'127.0.0.1');await once(app,'listening');
   t.after(()=>new Promise(resolve=>app.close(resolve)));
   const base=`http://127.0.0.1:${app.address().port}`;
-  async function call(path,body,cookie='') {const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
+  async function call(path,body,cookie='') { body = await reviewedDecision(base,path,body,cookie);const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
   async function print(id,cookie='') {const response=await fetch(`${base}/api/requests/${id}/print`,{headers:{cookie}});return {response,text:await response.text()};}
   const password='Impressao-teste-2026';
   const a=await call('/api/register',{name:'Admin & análise',organization:'Empresa <exemplo>',type:'privada',email:'impressao@empresa.com',password});

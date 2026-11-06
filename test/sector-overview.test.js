@@ -1,3 +1,4 @@
+import { reviewedDecision } from '../test-support/reviewed-decision.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
@@ -21,7 +22,7 @@ test('resumo por setor conta pendências, preserva inativos e ignora urgência d
 test('resumo usa somente pedidos fornecidos pelo workspace autorizado', async t => {
   const app=createApp({databasePath:':memory:'});app.listen(0,'127.0.0.1');await once(app,'listening');t.after(()=>new Promise(resolve=>app.close(resolve)));
   const base=`http://127.0.0.1:${app.address().port}`;
-  async function call(path,body,cookie='') {const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
+  async function call(path,body,cookie='') { body = await reviewedDecision(base,path,body,cookie);const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
   const password='Resumo-setor-2026';
   const admin=await call('/api/register',{name:'Admin',organization:'Uma',type:'privada',email:'resumo@uma.com',password});
   const other=await call('/api/register',{name:'Outro',organization:'Outra',type:'publica',email:'resumo@outra.com',password});

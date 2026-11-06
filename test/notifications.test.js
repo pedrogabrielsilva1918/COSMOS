@@ -1,3 +1,4 @@
+import { reviewedDecision } from '../test-support/reviewed-decision.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
@@ -13,7 +14,7 @@ const stop=app=>new Promise(resolve=>app.close(resolve));
 async function setup(t) {
   const dir=mkdtempSync(join(tmpdir(),'cosmos-notifications-')),databasePath=join(dir,'test.sqlite');const ctx=await start(databasePath);ctx.databasePath=databasePath;
   t.after(async()=>{if(ctx.app.listening)await stop(ctx.app);rmSync(dir,{recursive:true,force:true});});
-  ctx.call=async(path,body,cookie='')=>{const r=await fetch(ctx.base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};};
+  ctx.call=async(path,body,cookie='')=>{body=await reviewedDecision(ctx.base,path,body,cookie);const r=await fetch(ctx.base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',cookie},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};};
   ctx.admin=await ctx.call('/api/register',{name:'Ana de teste',organization:'Uma',type:'privada',email:'notificacao@uma.com',password});
   ctx.sector=(await ctx.call('/api/workspace',undefined,ctx.admin.cookie)).data.sectors[0].id;
   ctx.person=async(email,role='colaborador')=>{await ctx.call('/api/users',{name:email.split('@')[0],email,password,role,sector_id:ctx.sector},ctx.admin.cookie);return ctx.call('/api/login',{email,password});};

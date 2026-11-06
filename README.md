@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Decidir sobre o conteúdo atual
+
+Ao aprovar ou recusar, o cliente envia `expected: {title, description}` com o texto que o administrador abriu para analisar. O servidor exige esses campos e os compara ao pedido atual dentro da transação da decisão. Se o solicitante tiver alterado o conteúdo, retorna 409 sem mudar a situação, o histórico ou as notificações. Feche o pedido, atualize os dados e reabra para conferir a versão atual antes de decidir.
+
+Integrações com `POST /api/requests/:id/decision` também precisam enviar `expected` com título e descrição recebidos do workspace. Sem esse objeto, uma decisão elegível é rejeitada com 400. As restrições de perfil, organização, autoria e situação permanecem. A verificação compara o conteúdo atual, não mantém um contador de versões; editar e restaurar exatamente o mesmo texto não gera conflito. Não há migração do banco.
+
 ## Link direto para uma solicitação
 
 Na janela do pedido, **Copiar link** gera um endereço como `https://seu-cosmos/?pedido=9`. Ele contém somente o ID, sem credenciais ou dados do pedido. Ao abrir, o COSMOS exige uma sessão válida e procura o pedido entre os registros já autorizados no workspace. Sem sessão, o destino é mantido até concluir o login. Pedidos indisponíveis à conta mostram uma mensagem genérica. IDs inválidos são rejeitados.
