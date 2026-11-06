@@ -2,6 +2,12 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Filtros compactos de solicitações
+
+Busca, situação e exportações ficam visíveis. Abra **Mais filtros e ordenação** para usar prazo, setor, prioridade, fila, ordenação e período. Recolher a área mantém os valores e a filtragem; o título indica quantos ajustes adicionais estão ativos, incluindo ordenação diferente de Mais recentes. Datas inicial e final contam separadamente.
+
+**Atualizar dados** preserva os filtros e a abertura da área. **Limpar filtros** e sair da conta restauram os valores e recolhem a área. Um período inválido abre automaticamente os filtros para permitir a correção. O seletor de fila continua exclusivo de administradores.
+
 ## Resumo dos resultados na tela
 
 Em **Solicitações**, quatro cartões mostram pendentes, aprovadas, recusadas e pendentes vencidas entre os pedidos que correspondem aos filtros atuais. Busca, período, setor, prioridade, situação e fila são considerados. Vencidas já estão incluídas nas pendentes; não some esse indicador ao total. Sem resultados, os cartões mostram zero.
