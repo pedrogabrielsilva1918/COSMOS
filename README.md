@@ -2,6 +2,10 @@
 
 Gestão administrativa para empresas privadas e organizações públicas. Primeira versão funcional (MVP), com interface em português, servidor Node.js e banco SQLite persistente. Não depende de pacotes externos.
 
+## Copiar protocolo
+
+Na janela da solicitação, **Copiar protocolo** copia somente o identificador, como `COS-00009`, e confirma a cópia na tela. Se o navegador bloquear a área de transferência, o COSMOS apresenta o protocolo selecionado em um campo para cópia manual. A ação está disponível apenas nos pedidos que a pessoa já pode consultar. Não envia mensagens, não copia dados do pedido e não altera registros.
+
 ## Continuar a consulta após editar
 
 Ao editar o próprio pedido, definir o prazo ou alterar o responsável, **Salvar** atualiza os dados e reabre o pedido correspondente. **Voltar ao pedido** descarta as alterações ainda não salvas e retorna aos detalhes. A edição continua sujeita às mesmas permissões e validações.

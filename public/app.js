@@ -521,7 +521,8 @@ function showRequest(id) {
   const own = r.user_id === state.user.id, pending = r.status === 'pendente', manager = state.user.role === 'admin' && pending;
   openModal(`Solicitação COS-${String(id).padStart(5, '0')}`, `
     <div class="request-overview">${pill(r.status)}<h3>${escapeHTML(r.title)}</h3><p>${escapeHTML(r.author)} <span>·</span> ${date(r.created_at)}</p></div>
-    <div class="request-toolbar">${own && pending ? '<button type="button" class="secondary" id="edit-own-request">Editar pedido</button>' : ''}<a class="secondary" href="/api/requests/${id}/print" target="_blank" rel="noopener">Imprimir / PDF ↗</a>${own ? '<button type="button" class="text-button" id="reuse-own-request">Usar como modelo</button>' : ''}</div>
+    <div class="request-toolbar"><button type="button" class="secondary" id="copy-request-protocol">Copiar protocolo</button>${own && pending ? '<button type="button" class="secondary" id="edit-own-request">Editar pedido</button>' : ''}<a class="secondary" href="/api/requests/${id}/print" target="_blank" rel="noopener">Imprimir / PDF ↗</a>${own ? '<button type="button" class="text-button" id="reuse-own-request">Usar como modelo</button>' : ''}</div>
+    <p id="copy-protocol-status" class="copy-protocol-status" role="status" aria-live="polite"></p><div id="copy-protocol-fallback" hidden><label>Protocolo para copiar<input id="copy-protocol-value" type="text" readonly value="COS-${String(id).padStart(5, '0')}" aria-describedby="copy-protocol-status"></label></div>
     <div class="request-tabs" role="tablist" aria-label="Informações da solicitação">${[['details','Detalhes'],['comments','Comentários'],['history','Movimentações']].map(([key,label],i)=>`<button type="button" role="tab" id="request-tab-${key}" aria-controls="request-${key}-panel" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}" data-request-tab="${key}">${label}</button>`).join('')}</div>
     <section id="request-details-panel" class="request-tab-panel" role="tabpanel" aria-labelledby="request-tab-details" tabindex="0">
       <dl class="request-facts"><div><dt>Setor</dt><dd>${escapeHTML(r.sector)}</dd></div><div><dt>Prioridade</dt><dd><span class="priority ${r.priority}">${escapeHTML(r.priority[0].toUpperCase()+r.priority.slice(1))}</span></dd></div><div><dt>Prazo</dt><dd>${deadlineBadge(r)}${manager ? '<button type="button" class="text-button" id="edit-deadline" aria-label="Alterar prazo do pedido">Alterar</button>' : ''}</dd></div><div><dt>Responsável pela análise</dt><dd>${assigneeBadge(r)}${manager ? '<button type="button" class="text-button" id="edit-assignee" aria-label="Alterar responsável pela análise">Alterar</button>' : ''}</dd></div></dl>
@@ -533,6 +534,25 @@ function showRequest(id) {
     <section id="request-comments-panel" class="request-tab-panel" role="tabpanel" aria-labelledby="request-tab-comments" tabindex="0" hidden></section>
     <section id="request-history-panel" class="request-tab-panel" role="tabpanel" aria-labelledby="request-tab-history" tabindex="0" hidden></section>`);
   $('#modal').classList.add('request-dialog');
+  $('#copy-request-protocol').onclick = async event => {
+    const button = event.currentTarget, epoch = workspaceEpoch, protocol = `COS-${String(id).padStart(5,'0')}`;
+    button.disabled = true;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Cópia automática indisponível.');
+      await navigator.clipboard.writeText(protocol);
+      if (epoch === workspaceEpoch && button.isConnected) {
+        $('#copy-protocol-fallback').hidden = true;
+        $('#copy-protocol-status').textContent = `Protocolo ${protocol} copiado.`;
+      }
+    } catch {
+      if (epoch === workspaceEpoch && button.isConnected) {
+        $('#copy-protocol-status').textContent = 'A cópia automática não está disponível. Copie o protocolo selecionado abaixo.';
+        $('#copy-protocol-fallback').hidden = false;
+        $('#copy-protocol-value').focus(); $('#copy-protocol-value').select();
+      }
+    } finally { button.disabled = false; }
+  };
+
   const tabs = [...$('#modal').querySelectorAll('[data-request-tab]')];
   function selectTab(tab) {
     for (const item of tabs) { const selected = item === tab; item.setAttribute('aria-selected',String(selected)); item.tabIndex = selected ? 0 : -1; $(`#request-${item.dataset.requestTab}-panel`).hidden = !selected; }
